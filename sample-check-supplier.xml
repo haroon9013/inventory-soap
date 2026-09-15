@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+    xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+    xmlns:inv="http://example.com/inventory">
+
+    <soap:Header/>
+
+    <soap:Body>
+        <inv:CheckSupplierAvailabilityRequest>
+            <inv:productId>101</inv:productId>
+        </inv:CheckSupplierAvailabilityRequest>
+    </soap:Body>
+
+</soap:Envelope>

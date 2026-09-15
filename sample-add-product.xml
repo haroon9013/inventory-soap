@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+    xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+    xmlns:inv="http://example.com/inventory">
+
+    <soap:Header/>
+
+    <soap:Body>
+        <inv:AddProductRequest>
+            <inv:product>
+                <inv:id>101</inv:id>
+                <inv:name>Laptop</inv:name>
+                <inv:quantity>10</inv:quantity>
+                <inv:price>55000.0</inv:price>
+                <inv:category>Electronics</inv:category>
+            </inv:product>
+        </inv:AddProductRequest>
+    </soap:Body>
+
+</soap:Envelope>

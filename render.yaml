@@ -1,0 +1,62 @@
+databases:
+  - name: inventory-db
+    databaseName: inventorydb
+    user: inventoryuser
+    plan: free
+    region: oregon
+
+services:
+  # 1. Supplier Service (Independent Availability Microservice)
+  - type: web
+    name: supplier-service
+    env: docker
+    dockerfilePath: ./supplier-service/Dockerfile
+    dockerContext: ./supplier-service
+    plan: free
+    region: oregon
+    healthCheckPath: /api/supplier/availability/101
+    envVars:
+      - key: PORT
+        value: 8080
+
+  # 2. Inventory Service (SOAP Web Service + REST GUI)
+  - type: web
+    name: inventory-service
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /api/products
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inventory-db
+          property: connectionString
+      - key: DB_USERNAME
+        fromDatabase:
+          name: inventory-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: inventory-db
+          property: password
+      - key: DB_HOST
+        fromDatabase:
+          name: inventory-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: inventory-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: inventory-db
+          property: database
+      - key: SUPPLIER_SERVICE_URL
+        fromService:
+          type: web
+          name: supplier-service
+          envVarKey: RENDER_EXTERNAL_URL

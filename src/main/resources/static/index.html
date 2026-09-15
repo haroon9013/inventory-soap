@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Management System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="app-layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon">📦</div>
+            <div class="brand-info">
+                <span class="brand-title">InventoryPro</span>
+                <span class="brand-subtitle">SOAP + REST Service</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">OPERATIONS</div>
+            <button class="nav-item active" id="nav-add" onclick="switchTab('add')">
+                <span class="nav-icon">➕</span>
+                <span>Add Product</span>
+            </button>
+            <button class="nav-item" id="nav-get" onclick="switchTab('get')">
+                <span class="nav-icon">🔍</span>
+                <span>Get Product</span>
+            </button>
+            <button class="nav-item" id="nav-update" onclick="switchTab('update')">
+                <span class="nav-icon">✏️</span>
+                <span>Update Product</span>
+            <button class="nav-item" id="nav-delete" onclick="switchTab('delete')">
+                <span class="nav-icon">🗑️</span>
+                <span>Delete Product</span>
+            </button>
+            <button class="nav-item" id="nav-external" onclick="switchTab('external')">
+                <span class="nav-icon">🌐</span>
+                <span>External Info</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="service-card">
+                <div class="service-header">
+                    <span class="status-indicator"></span>
+                    <span class="service-name">Service Status</span>
+                </div>
+                <div class="service-details">
+                    <div class="service-row">
+                        <span>Port:</span> <strong>8080</strong>
+                    </div>
+                    <div class="service-row">
+                        <span>SOAP:</span> <code>/ws</code>
+                    </div>
+                    <div class="service-row">
+                        <span>REST:</span> <code>/api/products</code>
+                    </div>
+                    <div class="service-row">
+                        <span>Supplier:</span> <code>Port 8081</code>
+                    </div>
+                    <div class="service-row">
+                        <span>APIs:</span> <code>Frankfurter + OpenMeteo</code>
+                    </div>
+                </div>
+                <a href="/ws/inventory.wsdl" target="_blank" class="wsdl-link">
+                    View WSDL Contract ↗
+                </a>
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+        <!-- TOP HEADER -->
+        <header class="top-header">
+            <div class="header-left">
+                <div class="header-icon">📦</div>
+                <div>
+                    <h1 class="header-title">Inventory Management</h1>
+                    <p class="header-subtitle">Manage your products efficiently</p>
+                </div>
+            </div>
+            <div class="header-badges">
+                <span class="badge badge-success">
+                    <span class="badge-dot"></span> Online
+                </span>
+                <span class="badge badge-primary">Spring Boot 3.5</span>
+                <span class="badge badge-neutral">Java 21</span>
+            </div>
+        </header>
+
+        <!-- STATISTICS CARDS -->
+        <section class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon stat-icon-blue">📦</div>
+                <div class="stat-content">
+                    <div class="stat-label">Total Products</div>
+                    <div class="stat-value" id="statTotalProducts">0</div>
+                    <div class="stat-hint">Active session cache</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon stat-icon-purple">🔢</div>
+                <div class="stat-content">
+                    <div class="stat-label">Total Quantity</div>
+                    <div class="stat-value" id="statTotalQuantity">0</div>
+                    <div class="stat-hint">Units in inventory</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon stat-icon-green">💰</div>
+                <div class="stat-content">
+                    <div class="stat-label">Inventory Value</div>
+                    <div class="stat-value" id="statTotalValue">₹0.00</div>
+                    <div class="stat-hint">Calculated worth</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon stat-icon-amber">⚡</div>
+                <div class="stat-content">
+                    <div class="stat-label">Last Operation</div>
+                    <div class="stat-value stat-value-sm" id="statLastOp">Ready</div>
+                    <div class="stat-hint" id="statLastOpTime">System initialized</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STATUS NOTIFICATION / RESULT BOX -->
+        <div id="result" class="result-banner result-info">
+            <span class="result-icon">ℹ️</span>
+            <div class="result-body">
+                <span class="result-title">System Ready</span>
+                <span class="result-message">No operation performed yet.</span>
+            </div>
+        </div>
+
+        <!-- WORKSPACE GRID (Operations + Product Details) -->
+        <div class="workspace-grid">
+
+            <!-- LEFT: OPERATIONS CARD WITH TABS -->
+            <section class="card operations-card">
+                <div class="tab-header">
+                    <button class="tab-btn active" id="tab-btn-add" onclick="switchTab('add')">
+                        <span>➕ Add</span>
+                    </button>
+                    <button class="tab-btn" id="tab-btn-get" onclick="switchTab('get')">
+                        <span>🔍 Get</span>
+                    </button>
+                    <button class="tab-btn" id="tab-btn-update" onclick="switchTab('update')">
+                        <span>✏️ Update</span>
+                    </button>
+                    <button class="tab-btn" id="tab-btn-delete" onclick="switchTab('delete')">
+                        <span>🗑️ Delete</span>
+                    </button>
+                    <button class="tab-btn" id="tab-btn-external" onclick="switchTab('external')">
+                        <span>🌐 External Info</span>
+                    </button>
+                </div>
+
+                <!-- ADD PRODUCT PANE -->
+                <div class="tab-pane active" id="tab-pane-add">
+                    <div class="pane-intro">
+                        <h3>Add New Product</h3>
+                        <p>Insert a new inventory item into the system database.</p>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="addId">Product ID <span class="required">*</span></label>
+                            <input type="number" id="addId" placeholder="e.g. 101" min="1" step="1">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="addName">Product Name <span class="required">*</span></label>
+                            <input type="text" id="addName" placeholder="e.g. Mechanical Keyboard">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="addQuantity">Quantity <span class="required">*</span></label>
+                            <input type="number" id="addQuantity" placeholder="e.g. 25" min="0" step="1">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="addPrice">Price (₹) <span class="required">*</span></label>
+                            <input type="number" id="addPrice" placeholder="e.g. 3499.00" min="0" step="0.01">
+                        </div>
+
+                        <div class="form-group form-group-full">
+                            <label for="addCategory">Category <span class="required">*</span></label>
+                            <input type="text" id="addCategory" placeholder="e.g. Electronics, Peripherals, Furniture">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary" onclick="addProduct()">
+                            <span>➕ Add Product</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearAddForm()">
+                            Clear Form
+                        </button>
+                    </div>
+                </div>
+
+                <!-- GET PRODUCT PANE -->
+                <div class="tab-pane" id="tab-pane-get">
+                    <div class="pane-intro">
+                        <h3>Retrieve Product</h3>
+                        <p>Search for an existing product by its unique Product ID.</p>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group form-group-full">
+                            <label for="getId">Product ID <span class="required">*</span></label>
+                            <input type="number" id="getId" placeholder="Enter Product ID (e.g. 101)" min="1">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-info" onclick="getProduct()">
+                            <span>🔍 Retrieve Product</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- UPDATE PRODUCT PANE -->
+                <div class="tab-pane" id="tab-pane-update">
+                    <div class="pane-intro">
+                        <h3>Update Product Details</h3>
+                        <p>Modify details of an existing product in inventory.</p>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="updateId">Product ID <span class="required">*</span></label>
+                            <input type="number" id="updateId" placeholder="e.g. 101" min="1" step="1">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="updateName">Product Name <span class="required">*</span></label>
+                            <input type="text" id="updateName" placeholder="e.g. Mechanical Keyboard Pro">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="updateQuantity">Quantity <span class="required">*</span></label>
+                            <input type="number" id="updateQuantity" placeholder="e.g. 30" min="0" step="1">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="updatePrice">Price (₹) <span class="required">*</span></label>
+                            <input type="number" id="updatePrice" placeholder="e.g. 3999.00" min="0" step="0.01">
+                        </div>
+
+                        <div class="form-group form-group-full">
+                            <label for="updateCategory">Category <span class="required">*</span></label>
+                            <input type="text" id="updateCategory" placeholder="e.g. Electronics">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-accent" onclick="updateProduct()">
+                            <span>✏️ Update Product</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearUpdateForm()">
+                            Clear Form
+                        </button>
+                    </div>
+                </div>
+
+                <!-- DELETE PRODUCT PANE -->
+                <div class="tab-pane" id="tab-pane-delete">
+                    <div class="pane-intro">
+                        <h3>Delete Product</h3>
+                        <p>Permanently remove a product from the inventory database.</p>
+                    </div>
+
+                    <div class="warning-callout">
+                        <span class="warning-icon">⚠️</span>
+                        <span>Deleting a product removes its record immediately. Please verify the ID before proceeding.</span>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group form-group-full">
+                            <label for="deleteId">Product ID <span class="required">*</span></label>
+                            <input type="number" id="deleteId" placeholder="Enter Product ID to delete (e.g. 101)" min="1">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-danger" onclick="deleteProduct()">
+                            <span>🗑️ Delete Product</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- EXTERNAL INFO PANE -->
+                <div class="tab-pane" id="tab-pane-external">
+                    <div class="pane-intro">
+                        <h3>Combined External Intelligence</h3>
+                        <p>Query aggregated data across AWS RDS Database, Supplier Service (port 8081), Frankfurter Currency API, and Open-Meteo Weather API.</p>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group form-group-full">
+                            <label for="externalId">Product ID <span class="required">*</span></label>
+                            <input type="number" id="externalId" placeholder="Enter Product ID (e.g. 101)" min="1">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary" onclick="queryExternalInfo()">
+                            <span>🌐 Retrieve Combined External Info</span>
+                        </button>
+                    </div>
+
+                    <div id="externalInfoResult" class="external-info-result-container"></div>
+                </div>
+
+            </section>
+
+            <!-- RIGHT: PRODUCT DETAILS & CACHE -->
+            <section class="details-column">
+
+                <!-- PRODUCT DETAILS CARD -->
+                <div class="card details-card">
+                    <div class="details-card-header">
+                        <h2>Product Details</h2>
+                        <span class="details-badge" id="detailsStatusBadge">No Selection</span>
+                    </div>
+
+                    <div id="productDetails" class="product-details-content">
+                        <div class="empty-state">
+                            <div class="empty-icon">📦</div>
+                            <h3 class="empty-title">No Product Selected</h3>
+                            <p class="empty-desc">Retrieve a product using "Get Product" or add a new one to inspect its full details here.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RECENT SESSION PRODUCTS -->
+                <div class="card recent-card">
+                    <div class="recent-card-header">
+                        <h3>Session Products Cache</h3>
+                        <span class="count-badge" id="cachedCountBadge">0 items</span>
+                    </div>
+                    <div id="recentProductsList" class="recent-list">
+                        <div class="recent-empty">No products recorded in this session yet.</div>
+                    </div>
+                </div>
+
+            </section>
+
+        </div>
+
+    </main>
+
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>

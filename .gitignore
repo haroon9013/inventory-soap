@@ -1,0 +1,38 @@
+# Compiled class files and Maven build outputs
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# IDE and Editor files
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Environment, secrets, and credentials
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.secret
+credentials.json
+secrets.properties
