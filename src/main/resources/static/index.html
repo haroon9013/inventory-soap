@@ -55,23 +55,26 @@
                 </div>
                 <div class="service-details">
                     <div class="service-row">
-                        <span>Port:</span> <strong>8080</strong>
+                        <span>Protocol:</span> <strong>SOAP 1.1</strong>
                     </div>
                     <div class="service-row">
-                        <span>SOAP:</span> <code>/ws</code>
+                        <span>SOAP Endpoint:</span> <code>/ws</code>
                     </div>
                     <div class="service-row">
-                        <span>REST:</span> <code>/api/products</code>
+                        <span>Deployment:</span> <strong>AWS ECS Fargate</strong>
                     </div>
                     <div class="service-row">
-                        <span>Supplier:</span> <code>Port 8081</code>
+                        <span>Database:</span> <strong>AWS RDS PG</strong>
                     </div>
                     <div class="service-row">
-                        <span>APIs:</span> <code>Frankfurter + OpenMeteo</code>
+                        <span>Supplier:</span> <code>AWS ECS / REST</code>
+                    </div>
+                    <div class="service-row">
+                        <span>Public APIs:</span> <code>Frankfurter + OpenMeteo</code>
                     </div>
                 </div>
                 <a href="/ws/inventory.wsdl" target="_blank" class="wsdl-link">
-                    View WSDL Contract ↗
+                    📄 View WSDL Contract (/ws/inventory.wsdl) ↗
                 </a>
             </div>
         </div>
@@ -85,15 +88,20 @@
             <div class="header-left">
                 <div class="header-icon">📦</div>
                 <div>
-                    <h1 class="header-title">Inventory Management</h1>
-                    <p class="header-subtitle">Manage your products efficiently</p>
+                    <h1 class="header-title">Inventory Management System</h1>
+                    <p class="header-subtitle">SOAP Web Service (Contract-First) • Distributed on AWS ECS Fargate</p>
                 </div>
             </div>
             <div class="header-badges">
                 <span class="badge badge-success">
                     <span class="badge-dot"></span> Online
                 </span>
-                <span class="badge badge-primary">Spring Boot 3.5</span>
+                <span class="badge badge-primary">
+                    <span>📡 Communication:</span> <strong>SOAP (/ws)</strong>
+                </span>
+                <span class="badge badge-neutral">
+                    <span>☁️ AWS:</span> <strong>ECS + RDS</strong>
+                </span>
                 <span class="badge badge-neutral">Java 21</span>
             </div>
         </header>
@@ -331,6 +339,37 @@
 
             <!-- RIGHT: PRODUCT DETAILS & CACHE -->
             <section class="details-column">
+
+                <!-- LIVE SOAP 1.1 RESPONSE DISPLAY CARD -->
+                <div class="card soap-response-card" id="soapResponseCard" style="display: none;">
+                    <div class="soap-card-header">
+                        <div class="soap-title-group">
+                            <span class="soap-pulse-icon">📡</span>
+                            <div>
+                                <h2 class="soap-card-title">SOAP 1.1 Service Response</h2>
+                                <span class="soap-card-subtitle" id="soapEndpointLabel">Target: POST /ws • Operation: —</span>
+                            </div>
+                        </div>
+                        <span class="soap-status-badge badge-success" id="soapResponseStatus">SUCCESS</span>
+                    </div>
+
+                    <div class="soap-card-body" id="soapResponseBody">
+                        <!-- Populated dynamically by script.js -->
+                    </div>
+
+                    <!-- Collapsible Raw SOAP XML Envelope Viewer -->
+                    <div class="soap-raw-accordion">
+                        <details id="soapRawDetails">
+                            <summary class="soap-raw-summary">
+                                <span>📄 Inspect Raw SOAP XML Envelope</span>
+                                <span class="soap-raw-tag">XML /ws</span>
+                            </summary>
+                            <div class="soap-raw-content">
+                                <pre><code id="soapRawXmlCode"></code></pre>
+                            </div>
+                        </details>
+                    </div>
+                </div>
 
                 <!-- PRODUCT DETAILS CARD -->
                 <div class="card details-card">

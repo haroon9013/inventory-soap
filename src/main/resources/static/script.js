@@ -1,5 +1,6 @@
 // ==========================================================================
-// Inventory Management System - Client Application Logic
+// Inventory Management System - Client Application Logic (SOAP 1.1 Web Services)
+// All CRUD and External Orchestration operations communicate via POST /ws
 // ==========================================================================
 
 // Client-side cache to track products during active session
@@ -9,6 +10,133 @@ const productCache = new Map();
 document.addEventListener("DOMContentLoaded", () => {
     updateStatistics("System Ready");
 });
+
+// --------------------------------------------------------------------------
+// XML & SOAP 1.1 Helper Utilities
+// --------------------------------------------------------------------------
+const SOAP_NAMESPACE = "http://example.com/inventory";
+
+function escapeXml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+}
+
+function getXmlNode(parent, localName) {
+    if (!parent) return null;
+    let nodes = parent.getElementsByTagName(localName);
+    if (nodes && nodes.length > 0) return nodes[0];
+    nodes = parent.getElementsByTagNameNS("*", localName);
+    if (nodes && nodes.length > 0) return nodes[0];
+    nodes = parent.getElementsByTagNameNS(SOAP_NAMESPACE, localName);
+    if (nodes && nodes.length > 0) return nodes[0];
+    for (let i = 0; i < parent.childNodes.length; i++) {
+        const node = parent.childNodes[i];
+        if (node.nodeType === 1 && (node.localName === localName || node.nodeName.endsWith(":" + localName) || node.nodeName === localName)) {
+            return node;
+        }
+    }
+    return null;
+}
+
+function getXmlValue(parent, localName) {
+    const node = getXmlNode(parent, localName);
+    return node && node.textContent ? node.textContent.trim() : "";
+}
+
+function formatXmlForDisplay(xmlString) {
+    if (!xmlString) return "";
+    try {
+        let formatted = "";
+        let pad = 0;
+        const reg = /(>)(<)(\/*)/g;
+        const xml = xmlString.replace(reg, "$1\r\n$2$3");
+        const lines = xml.split("\r\n");
+
+        lines.forEach(line => {
+            let indent = 0;
+            if (line.match(/.+<\/\w[^>]*>$/)) {
+                indent = 0;
+            } else if (line.match(/^<\/\w/)) {
+                if (pad !== 0) pad -= 1;
+            } else if (line.match(/^<\w[^>]*[^\/]>.*$/)) {
+                indent = 1;
+            } else {
+                indent = 0;
+            }
+            const padding = "  ".repeat(Math.max(0, pad));
+            formatted += padding + line + "\n";
+            pad += indent;
+        });
+        return formatted.trim();
+    } catch (e) {
+        return xmlString;
+    }
+}
+
+async function callSoapService(operationName, bodyPayloadXml) {
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:inv="${SOAP_NAMESPACE}">
+    <soap:Header/>
+    <soap:Body>
+        ${bodyPayloadXml}
+    </soap:Body>
+</soap:Envelope>`;
+
+    try {
+        const response = await fetch("/ws", {
+            method: "POST",
+            headers: {
+                "Content-Type": "text/xml; charset=utf-8",
+                "SOAPAction": `"${SOAP_NAMESPACE}/${operationName}"`
+            },
+            body: envelope
+        });
+
+        const rawXml = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(rawXml, "text/xml");
+
+        // Check for XML parsing error
+        const parseError = xmlDoc.getElementsByTagName("parsererror");
+        if (parseError && parseError.length > 0) {
+            return {
+                ok: false,
+                status: response.status,
+                rawXml: rawXml,
+                xmlDoc: null,
+                fault: "XML Parsing Error: Server response could not be parsed as XML."
+            };
+        }
+
+        // Check for SOAP Fault
+        const faultNode = getXmlNode(xmlDoc, "Fault");
+        let faultMessage = null;
+        if (faultNode) {
+            faultMessage = getXmlValue(faultNode, "faultstring") || "SOAP Fault returned by server.";
+        }
+
+        return {
+            ok: response.ok && !faultMessage,
+            status: response.status,
+            rawXml: rawXml,
+            xmlDoc: xmlDoc,
+            fault: faultMessage
+        };
+    } catch (err) {
+        return {
+            ok: false,
+            status: 0,
+            rawXml: "",
+            xmlDoc: null,
+            fault: err.message || "Network connection error while calling SOAP endpoint (/ws)"
+        };
+    }
+}
 
 // --------------------------------------------------------------------------
 // Tab Navigation
@@ -40,7 +168,71 @@ function switchTab(tabId) {
 }
 
 // --------------------------------------------------------------------------
-// API Operation: Add Product (POST /api/products)
+// SOAP Output Display Renderer
+// --------------------------------------------------------------------------
+function renderSoapResponseCard(operation, status, message, productData = null, rawXml = "") {
+    const card = document.getElementById("soapResponseCard");
+    const label = document.getElementById("soapEndpointLabel");
+    const statusBadge = document.getElementById("soapResponseStatus");
+    const body = document.getElementById("soapResponseBody");
+    const rawCode = document.getElementById("soapRawXmlCode");
+
+    if (!card || !body) return;
+
+    card.style.display = "block";
+
+    if (label) {
+        label.textContent = `Target: POST /ws • Operation: ${operation} • Namespace: ${SOAP_NAMESPACE}`;
+    }
+
+    const isSuccess = status === "SUCCESS";
+
+    if (statusBadge) {
+        statusBadge.textContent = status;
+        statusBadge.className = "soap-status-badge " + (isSuccess ? "badge-success" : "badge-error");
+    }
+
+    // Build structured output matching required format
+    let detailsHtml = `
+        <div class="soap-output-summary">
+            <div class="soap-meta-banner">
+                <span class="soap-meta-tag">SOAP 1.1 Web Service</span>
+                <span class="soap-meta-route">Endpoint: <code>/ws</code></span>
+                <span class="soap-meta-op">Action: <strong>${operation}</strong></span>
+            </div>
+
+            <div class="soap-receipt-box">
+                <div class="soap-receipt-header">SOAP RESPONSE</div>
+                <div class="soap-receipt-row"><span>Operation:</span> <strong>${operation}</strong></div>
+                <div class="soap-receipt-row"><span>Status:</span> <strong class="${isSuccess ? 'text-success' : 'text-danger'}">${status}</strong></div>
+                <div class="soap-receipt-row"><span>Message:</span> <span>${escapeXml(message)}</span></div>
+    `;
+
+    if (productData) {
+        detailsHtml += `
+                <div class="soap-receipt-divider"></div>
+                <div class="soap-receipt-row"><span>Product ID:</span> <strong>#${productData.id}</strong></div>
+                ${productData.name ? `<div class="soap-receipt-row"><span>Name:</span> <strong>${escapeXml(productData.name)}</strong></div>` : ''}
+                ${productData.quantity !== undefined ? `<div class="soap-receipt-row"><span>Quantity:</span> <strong>${productData.quantity} units</strong></div>` : ''}
+                ${productData.price !== undefined ? `<div class="soap-receipt-row"><span>Price:</span> <strong>₹${Number(productData.price).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></div>` : ''}
+                ${productData.category ? `<div class="soap-receipt-row"><span>Category:</span> <strong>${escapeXml(productData.category)}</strong></div>` : ''}
+        `;
+    }
+
+    detailsHtml += `
+            </div>
+        </div>
+    `;
+
+    body.innerHTML = detailsHtml;
+
+    if (rawCode && rawXml) {
+        rawCode.textContent = formatXmlForDisplay(rawXml);
+    }
+}
+
+// --------------------------------------------------------------------------
+// 1. SOAP Operation: addProduct (POST /ws -> AddProductRequest)
 // --------------------------------------------------------------------------
 async function addProduct() {
     const idRaw = document.getElementById("addId").value.trim();
@@ -49,7 +241,7 @@ async function addProduct() {
     const priceRaw = document.getElementById("addPrice").value.trim();
     const category = document.getElementById("addCategory").value.trim();
 
-    // Rigorous input validation
+    // Input validation
     const validationError = validateProductFields(idRaw, name, quantityRaw, priceRaw, category);
     if (validationError) {
         showResult(validationError, "error", "Validation Error");
@@ -64,33 +256,50 @@ async function addProduct() {
         category: category
     };
 
-    try {
-        const response = await fetch("/api/products", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(product)
-        });
+    // Construct SOAP 1.1 AddProductRequest payload
+    const soapPayload = `
+        <inv:AddProductRequest>
+            <inv:product>
+                <inv:id>${product.id}</inv:id>
+                <inv:name>${escapeXml(product.name)}</inv:name>
+                <inv:quantity>${product.quantity}</inv:quantity>
+                <inv:price>${product.price}</inv:price>
+                <inv:category>${escapeXml(product.category)}</inv:category>
+            </inv:product>
+        </inv:AddProductRequest>`;
 
-        const data = await response.json();
+    showResult("Dispatching SOAP AddProductRequest to /ws...", "info", "SOAP Request");
 
-        if (data.success) {
-            productCache.set(product.id, product);
-            updateStatistics("Added Product #" + product.id);
-            displayProduct(product);
-            clearAddForm();
-            showResult(data.message, "success", "Product Added");
-        } else {
-            showResult(data.message, "error", "Add Failed");
-        }
-    } catch (error) {
-        showResult("Error connecting to the server. Please ensure the backend is running.", "error", "Network Error");
+    const result = await callSoapService("addProduct", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "SOAP service communication failure.";
+        showResult(errorMsg, "error", "SOAP Fault / Error");
+        renderSoapResponseCard("addProduct", "FAULT", errorMsg, product, result.rawXml);
+        return;
+    }
+
+    // Parse AddProductResponse
+    const responseNode = getXmlNode(result.xmlDoc, "AddProductResponse");
+    const successStr = getXmlValue(responseNode, "success");
+    const isSuccess = successStr.toLowerCase() === "true";
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product added successfully via SOAP" : "Failed to add product");
+
+    if (isSuccess) {
+        productCache.set(product.id, product);
+        updateStatistics("SOAP Added #" + product.id);
+        displayProduct(product);
+        clearAddForm();
+        showResult(message, "success", "SOAP: addProduct");
+        renderSoapResponseCard("addProduct", "SUCCESS", message, product, result.rawXml);
+    } else {
+        showResult(message, "error", "SOAP: addProduct");
+        renderSoapResponseCard("addProduct", "FAILED", message, product, result.rawXml);
     }
 }
 
 // --------------------------------------------------------------------------
-// API Operation: Get Product (GET /api/products/{id})
+// 2. SOAP Operation: getProduct (POST /ws -> GetProductRequest)
 // --------------------------------------------------------------------------
 async function getProduct() {
     const idRaw = document.getElementById("getId").value.trim();
@@ -102,29 +311,58 @@ async function getProduct() {
 
     const id = parseInt(idRaw, 10);
 
-    try {
-        const response = await fetch("/api/products/" + id);
-        const data = await response.json();
+    // Construct SOAP 1.1 GetProductRequest payload
+    const soapPayload = `
+        <inv:GetProductRequest>
+            <inv:id>${id}</inv:id>
+        </inv:GetProductRequest>`;
 
-        if (data.success && data.product) {
-            productCache.set(data.product.id, data.product);
-            updateStatistics("Retrieved Product #" + id);
-            displayProduct(data.product);
-            prefillUpdateForm(data.product);
-            showResult(data.message, "success", "Product Found");
-        } else {
-            clearProductDetails();
-            showResult(data.message || "Product not found.", "error", "Lookup Result");
-        }
+    showResult(`Dispatching SOAP GetProductRequest for ID #${id} to /ws...`, "info", "SOAP Request");
 
-        document.getElementById("getId").value = "";
-    } catch (error) {
-        showResult("Error connecting to the server. Please ensure the backend is running.", "error", "Network Error");
+    const result = await callSoapService("getProduct", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "SOAP service communication failure.";
+        showResult(errorMsg, "error", "SOAP Fault / Error");
+        clearProductDetails();
+        renderSoapResponseCard("getProduct", "FAULT", errorMsg, { id: id }, result.rawXml);
+        return;
     }
+
+    // Parse GetProductResponse
+    const responseNode = getXmlNode(result.xmlDoc, "GetProductResponse");
+    const successStr = getXmlValue(responseNode, "success");
+    const isSuccess = successStr.toLowerCase() === "true";
+    const message = getXmlValue(responseNode, "message");
+    const productNode = getXmlNode(responseNode, "product");
+
+    if (isSuccess && productNode) {
+        const product = {
+            id: parseInt(getXmlValue(productNode, "id") || id, 10),
+            name: getXmlValue(productNode, "name"),
+            quantity: parseInt(getXmlValue(productNode, "quantity") || "0", 10),
+            price: parseFloat(getXmlValue(productNode, "price") || "0.0"),
+            category: getXmlValue(productNode, "category")
+        };
+
+        productCache.set(product.id, product);
+        updateStatistics("SOAP Retrieved #" + id);
+        displayProduct(product);
+        prefillUpdateForm(product);
+        showResult(message || "Product retrieved successfully via SOAP", "success", "SOAP: getProduct");
+        renderSoapResponseCard("getProduct", "SUCCESS", message || "Product found successfully", product, result.rawXml);
+    } else {
+        clearProductDetails();
+        const notFoundMsg = message || `Product with ID ${id} not found in database.`;
+        showResult(notFoundMsg, "error", "SOAP: getProduct");
+        renderSoapResponseCard("getProduct", "NOT FOUND", notFoundMsg, { id: id }, result.rawXml);
+    }
+
+    document.getElementById("getId").value = "";
 }
 
 // --------------------------------------------------------------------------
-// API Operation: Update Product (PUT /api/products)
+// 3. SOAP Operation: updateProduct (POST /ws -> UpdateProductRequest)
 // --------------------------------------------------------------------------
 async function updateProduct() {
     const idRaw = document.getElementById("updateId").value.trim();
@@ -133,7 +371,7 @@ async function updateProduct() {
     const priceRaw = document.getElementById("updatePrice").value.trim();
     const category = document.getElementById("updateCategory").value.trim();
 
-    // Rigorous input validation
+    // Input validation
     const validationError = validateProductFields(idRaw, name, quantityRaw, priceRaw, category);
     if (validationError) {
         showResult(validationError, "error", "Validation Error");
@@ -148,33 +386,50 @@ async function updateProduct() {
         category: category
     };
 
-    try {
-        const response = await fetch("/api/products", {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(product)
-        });
+    // Construct SOAP 1.1 UpdateProductRequest payload
+    const soapPayload = `
+        <inv:UpdateProductRequest>
+            <inv:product>
+                <inv:id>${product.id}</inv:id>
+                <inv:name>${escapeXml(product.name)}</inv:name>
+                <inv:quantity>${product.quantity}</inv:quantity>
+                <inv:price>${product.price}</inv:price>
+                <inv:category>${escapeXml(product.category)}</inv:category>
+            </inv:product>
+        </inv:UpdateProductRequest>`;
 
-        const data = await response.json();
+    showResult(`Dispatching SOAP UpdateProductRequest for ID #${product.id} to /ws...`, "info", "SOAP Request");
 
-        if (data.success) {
-            productCache.set(product.id, product);
-            updateStatistics("Updated Product #" + product.id);
-            displayProduct(product);
-            clearUpdateForm();
-            showResult(data.message, "success", "Product Updated");
-        } else {
-            showResult(data.message, "error", "Update Failed");
-        }
-    } catch (error) {
-        showResult("Error connecting to the server. Please ensure the backend is running.", "error", "Network Error");
+    const result = await callSoapService("updateProduct", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "SOAP service communication failure.";
+        showResult(errorMsg, "error", "SOAP Fault / Error");
+        renderSoapResponseCard("updateProduct", "FAULT", errorMsg, product, result.rawXml);
+        return;
+    }
+
+    // Parse UpdateProductResponse
+    const responseNode = getXmlNode(result.xmlDoc, "UpdateProductResponse");
+    const successStr = getXmlValue(responseNode, "success");
+    const isSuccess = successStr.toLowerCase() === "true";
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product updated successfully via SOAP" : "Failed to update product");
+
+    if (isSuccess) {
+        productCache.set(product.id, product);
+        updateStatistics("SOAP Updated #" + product.id);
+        displayProduct(product);
+        clearUpdateForm();
+        showResult(message, "success", "SOAP: updateProduct");
+        renderSoapResponseCard("updateProduct", "SUCCESS", message, product, result.rawXml);
+    } else {
+        showResult(message, "error", "SOAP: updateProduct");
+        renderSoapResponseCard("updateProduct", "FAILED", message, product, result.rawXml);
     }
 }
 
 // --------------------------------------------------------------------------
-// API Operation: Delete Product (DELETE /api/products/{id})
+// 4. SOAP Operation: deleteProduct (POST /ws -> DeleteProductRequest)
 // --------------------------------------------------------------------------
 async function deleteProduct() {
     const idRaw = document.getElementById("deleteId").value.trim();
@@ -186,45 +441,400 @@ async function deleteProduct() {
 
     const id = parseInt(idRaw, 10);
 
-    try {
-        // Retrieve first to display what is being deleted
-        const getResponse = await fetch("/api/products/" + id);
-        const getData = await getResponse.json();
+    // Construct SOAP 1.1 DeleteProductRequest payload
+    const soapPayload = `
+        <inv:DeleteProductRequest>
+            <inv:id>${id}</inv:id>
+        </inv:DeleteProductRequest>`;
 
-        if (!getData.success || !getData.product) {
-            showResult(getData.message || "Product with ID " + id + " not found.", "error", "Not Found");
-            clearProductDetails();
+    showResult(`Dispatching SOAP DeleteProductRequest for ID #${id} to /ws...`, "info", "SOAP Request");
+
+    const result = await callSoapService("deleteProduct", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "SOAP service communication failure.";
+        showResult(errorMsg, "error", "SOAP Fault / Error");
+        renderSoapResponseCard("deleteProduct", "FAULT", errorMsg, { id: id }, result.rawXml);
+        return;
+    }
+
+    // Parse DeleteProductResponse
+    const responseNode = getXmlNode(result.xmlDoc, "DeleteProductResponse");
+    const successStr = getXmlValue(responseNode, "success");
+    const isSuccess = successStr.toLowerCase() === "true";
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product deleted successfully via SOAP" : "Failed to delete product");
+
+    if (isSuccess) {
+        productCache.delete(id);
+        updateStatistics("SOAP Deleted #" + id);
+        showResult(message, "success", "SOAP: deleteProduct");
+        renderSoapResponseCard("deleteProduct", "SUCCESS", message, { id: id }, result.rawXml);
+        document.getElementById("deleteId").value = "";
+
+        const badge = document.getElementById("detailsStatusBadge");
+        if (badge) {
+            badge.textContent = "Deleted";
+            badge.style.backgroundColor = "#fef2f2";
+            badge.style.color = "#dc2626";
+        }
+    } else {
+        showResult(message, "error", "SOAP: deleteProduct");
+        renderSoapResponseCard("deleteProduct", "FAILED", message, { id: id }, result.rawXml);
+    }
+}
+
+// --------------------------------------------------------------------------
+// 5. SOAP Operation: checkSupplierAvailability (POST /ws)
+// --------------------------------------------------------------------------
+async function checkSupplierAvailability(productId) {
+    const container = document.getElementById("supplierDetailsContainer");
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="supplier-loading">
+            <span class="supplier-spinner">🔄</span>
+            <span>Querying independent Supplier Service via SOAP CheckSupplierAvailabilityRequest (/ws)...</span>
+        </div>
+    `;
+
+    const soapPayload = `
+        <inv:CheckSupplierAvailabilityRequest>
+            <inv:productId>${productId}</inv:productId>
+        </inv:CheckSupplierAvailabilityRequest>`;
+
+    const result = await callSoapService("checkSupplierAvailability", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        container.innerHTML = `
+            <div class="supplier-error">
+                ⚠️ Could not communicate with Supplier Service via SOAP. Verify backend connection.
+            </div>
+        `;
+        showResult("Failed to reach Supplier Service via SOAP", "error", "Network Error");
+        return;
+    }
+
+    const responseNode = getXmlNode(result.xmlDoc, "CheckSupplierAvailabilityResponse");
+    const supplierName = getXmlValue(responseNode, "supplierName") || "Supplier";
+    const availableQuantity = parseInt(getXmlValue(responseNode, "availableQuantity") || "0", 10);
+    const supplierPrice = parseFloat(getXmlValue(responseNode, "supplierPrice") || "0.0");
+    const available = getXmlValue(responseNode, "available").toLowerCase() === "true";
+
+    container.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "supplier-card " + (available ? "supplier-available" : "supplier-unavailable");
+
+    const header = document.createElement("div");
+    header.className = "supplier-card-header";
+
+    const titleGroup = document.createElement("div");
+    const badge = document.createElement("span");
+    badge.className = "supplier-status-badge " + (available ? "badge-avail" : "badge-unavail");
+    badge.textContent = available ? "✔ Supplier Stock Available" : "✖ Not Available";
+
+    const title = document.createElement("h4");
+    title.className = "supplier-card-title";
+    title.textContent = supplierName;
+
+    titleGroup.appendChild(badge);
+    titleGroup.appendChild(title);
+
+    const portBadge = document.createElement("span");
+    portBadge.className = "supplier-service-tag";
+    portBadge.textContent = "SOAP ➔ AWS ECS Supplier";
+
+    header.appendChild(titleGroup);
+    header.appendChild(portBadge);
+
+    const grid = document.createElement("div");
+    grid.className = "supplier-grid";
+
+    grid.appendChild(createSupplierStat("Product ID", "#" + productId));
+    grid.appendChild(createSupplierStat("Available Quantity", availableQuantity + " units"));
+    grid.appendChild(createSupplierStat("Supplier Price", "₹" + supplierPrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
+    grid.appendChild(createSupplierStat("Availability", available ? "AVAILABLE" : "UNAVAILABLE"));
+
+    card.appendChild(header);
+    card.appendChild(grid);
+
+    container.appendChild(card);
+    showResult(`SOAP checkSupplierAvailability received for #${productId}: ${available ? "AVAILABLE" : "UNAVAILABLE"}`, available ? "success" : "info", "SOAP Response");
+}
+
+function createSupplierStat(label, value) {
+    const div = document.createElement("div");
+    div.className = "supplier-stat-item";
+
+    const lbl = document.createElement("span");
+    lbl.className = "supplier-stat-label";
+    lbl.textContent = label;
+
+    const val = document.createElement("span");
+    val.className = "supplier-stat-value";
+    val.textContent = value;
+
+    div.appendChild(lbl);
+    div.appendChild(val);
+    return div;
+}
+
+// --------------------------------------------------------------------------
+// 6. SOAP Operation: getProductExternalInfo (Multi-Service Orchestration)
+// Coordinates: AWS RDS PostgreSQL + Supplier Service + Frankfurter + Open-Meteo
+// --------------------------------------------------------------------------
+async function queryExternalInfo(productIdOpt) {
+    const idInput = document.getElementById("externalId");
+    let productId = productIdOpt;
+
+    if (!productId && idInput) {
+        const raw = idInput.value.trim();
+        if (!raw || isNaN(raw) || parseInt(raw, 10) <= 0) {
+            showResult("Please enter a valid positive Product ID.", "error", "Validation Error");
             return;
         }
-
-        displayProduct(getData.product);
-
-        // Perform DELETE request
-        const deleteResponse = await fetch("/api/products/" + id, {
-            method: "DELETE"
-        });
-
-        const data = await deleteResponse.json();
-
-        if (data.success) {
-            productCache.delete(id);
-            updateStatistics("Deleted Product #" + id);
-            showResult(data.message, "success", "Product Deleted");
-            document.getElementById("deleteId").value = "";
-
-            // Update details badge to reflect deleted status
-            const badge = document.getElementById("detailsStatusBadge");
-            if (badge) {
-                badge.textContent = "Deleted";
-                badge.style.backgroundColor = "#fef2f2";
-                badge.style.color = "#dc2626";
-            }
-        } else {
-            showResult(data.message, "error", "Delete Failed");
-        }
-    } catch (error) {
-        showResult("Error connecting to the server. Please ensure the backend is running.", "error", "Network Error");
+        productId = parseInt(raw, 10);
     }
+
+    const container = document.getElementById("externalInfoResult");
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="external-loading">
+            <span class="external-spinner">🔄</span>
+            <span>Dispatching SOAP GetProductExternalInfoRequest to /ws across 4 distributed sources...</span>
+        </div>
+    `;
+
+    // Construct SOAP 1.1 GetProductExternalInfoRequest payload
+    const soapPayload = `
+        <inv:GetProductExternalInfoRequest>
+            <inv:id>${productId}</inv:id>
+        </inv:GetProductExternalInfoRequest>`;
+
+    const result = await callSoapService("getProductExternalInfo", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "SOAP service communication failure.";
+        container.innerHTML = `
+            <div class="external-error-box">
+                <span class="err-icon">⚠️</span>
+                <div>
+                    <strong>SOAP Error:</strong> ${escapeXml(errorMsg)}
+                </div>
+            </div>
+        `;
+        showResult(errorMsg, "error", "SOAP Fault");
+        return;
+    }
+
+    // Parse GetProductExternalInfoResponse
+    const responseNode = getXmlNode(result.xmlDoc, "GetProductExternalInfoResponse");
+    const success = getXmlValue(responseNode, "success").toLowerCase() === "true";
+    const message = getXmlValue(responseNode, "message");
+
+    if (!success) {
+        container.innerHTML = `
+            <div class="external-error-box">
+                <span class="err-icon">⚠️</span>
+                <div>
+                    <strong>SOAP Query Result:</strong> ${escapeXml(message || "Product not found")}
+                </div>
+            </div>
+        `;
+        showResult(message || "Product not found", "error", "External Query");
+        return;
+    }
+
+    // Extract Product Data
+    const prodNode = getXmlNode(responseNode, "product");
+    const prodId = getXmlValue(prodNode, "id") || productId;
+    const prodName = getXmlValue(prodNode, "name") || "N/A";
+    const prodQuantity = getXmlValue(prodNode, "quantity") || "0";
+    const prodPrice = parseFloat(getXmlValue(prodNode, "price") || "0.0");
+    const prodCategory = getXmlValue(prodNode, "category") || "N/A";
+
+    // Extract Supplier Data
+    const supNode = getXmlNode(responseNode, "supplierInfo");
+    const supName = getXmlValue(supNode, "supplierName") || "N/A";
+    const supQuantity = getXmlValue(supNode, "availableQuantity") || "0";
+    const supPrice = parseFloat(getXmlValue(supNode, "supplierPrice") || "0.0");
+    const supAvailable = getXmlValue(supNode, "available").toLowerCase() === "true";
+    const supStatus = getXmlValue(supNode, "status") || (supAvailable ? "AVAILABLE" : "UNAVAILABLE");
+
+    // Extract Currency Data
+    const curNode = getXmlNode(responseNode, "currencyInfo");
+    const baseCur = getXmlValue(curNode, "baseCurrency") || "EUR";
+    const targetCur = getXmlValue(curNode, "targetCurrency") || "USD";
+    const exRate = getXmlValue(curNode, "exchangeRate") || "N/A";
+    const convertedPrice = parseFloat(getXmlValue(curNode, "convertedPrice") || "0.0");
+    const curStatus = getXmlValue(curNode, "status") || "OK";
+
+    // Extract Weather Data
+    const wtrNode = getXmlNode(responseNode, "weatherInfo");
+    const wtrLoc = getXmlValue(wtrNode, "location") || "Mumbai Central Distribution Hub";
+    const wtrTemp = getXmlValue(wtrNode, "temperature") || "0.0";
+    const wtrWind = getXmlValue(wtrNode, "windSpeed") || "0.0";
+    const wtrCond = getXmlValue(wtrNode, "weatherCondition") || "N/A";
+    const wtrStatus = getXmlValue(wtrNode, "status") || "OK";
+
+    // Build the exact structured display required by the project specifications
+    container.innerHTML = "";
+
+    const extWrapper = document.createElement("div");
+    extWrapper.className = "external-intel-wrapper";
+
+    extWrapper.innerHTML = `
+        <!-- HEADER TITLE -->
+        <div class="ext-intel-header">
+            <div class="ext-intel-title-row">
+                <span class="ext-pulse-dot"></span>
+                <span class="ext-main-title">EXTERNAL PRODUCT INFORMATION</span>
+                <span class="ext-proto-tag">SOAP: getProductExternalInfo</span>
+            </div>
+            <p class="ext-intel-desc">Single SOAP operation coordinating 4 distributed cloud services via AWS ECS Fargate</p>
+        </div>
+
+        <!-- SERVICE INTEGRATION TRANSPARENCY BAR -->
+        <div class="service-integration-card">
+            <div class="svc-int-title">SERVICE INTEGRATION</div>
+            <div class="svc-int-grid">
+                <div class="svc-int-item">
+                    <span class="svc-check">✓</span>
+                    <div class="svc-item-info">
+                        <strong>Inventory Database</strong>
+                        <span>Amazon RDS PostgreSQL</span>
+                    </div>
+                </div>
+                <div class="svc-int-item">
+                    <span class="svc-check">✓</span>
+                    <div class="svc-item-info">
+                        <strong>Supplier Service</strong>
+                        <span>AWS ECS / REST</span>
+                    </div>
+                </div>
+                <div class="svc-int-item">
+                    <span class="svc-check">✓</span>
+                    <div class="svc-item-info">
+                        <strong>Currency Service</strong>
+                        <span>Frankfurter API / REST</span>
+                    </div>
+                </div>
+                <div class="svc-int-item">
+                    <span class="svc-check">✓</span>
+                    <div class="svc-item-info">
+                        <strong>Weather Service</strong>
+                        <span>Open-Meteo API / REST</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4 INDEPENDENT SERVICE CARDS -->
+        <div class="external-quad-grid">
+
+            <!-- 1. PRODUCT DATA — AWS RDS -->
+            <div class="external-card card-database">
+                <div class="ext-card-header">
+                    <span class="ext-icon">🗄️</span>
+                    <div>
+                        <h4 class="ext-title">PRODUCT DATA — AWS RDS</h4>
+                        <span class="ext-source">Amazon RDS PostgreSQL</span>
+                    </div>
+                </div>
+                <div class="ext-card-body">
+                    <div class="ext-stat-row"><span>Product ID:</span> <strong>#${escapeXml(prodId)}</strong></div>
+                    <div class="ext-stat-row"><span>Name:</span> <strong>${escapeXml(prodName)}</strong></div>
+                    <div class="ext-stat-row"><span>Quantity:</span> <strong>${escapeXml(prodQuantity)} units</strong></div>
+                    <div class="ext-stat-row"><span>Price:</span> <strong>₹${prodPrice.toLocaleString("en-IN", {minimumFractionDigits: 2})}</strong></div>
+                    <div class="ext-stat-row"><span>Category:</span> <strong>${escapeXml(prodCategory)}</strong></div>
+                </div>
+            </div>
+
+            <!-- 2. SUPPLIER SERVICE — AWS ECS -->
+            <div class="external-card ${supAvailable ? 'card-supplier-avail' : 'card-supplier-unavail'}">
+                <div class="ext-card-header">
+                    <span class="ext-icon">🏢</span>
+                    <div>
+                        <h4 class="ext-title">SUPPLIER SERVICE — AWS ECS</h4>
+                        <span class="ext-source">Distributed Microservice</span>
+                    </div>
+                </div>
+                <div class="ext-card-body">
+                    <div class="ext-stat-row"><span>Supplier:</span> <strong>${escapeXml(supName)}</strong></div>
+                    <div class="ext-stat-row"><span>Available Quantity:</span> <strong>${escapeXml(supQuantity)} units</strong></div>
+                    <div class="ext-stat-row"><span>Supplier Price:</span> <strong>₹${supPrice.toLocaleString("en-IN", {minimumFractionDigits: 2})}</strong></div>
+                    <div class="ext-stat-row"><span>Availability:</span> <span class="ext-badge ${supAvailable ? 'badge-success-ext' : 'badge-danger-ext'}">${supAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}</span></div>
+                    <div class="ext-stat-status">${escapeXml(supStatus)}</div>
+                </div>
+            </div>
+
+            <!-- 3. CURRENCY SERVICE — FRANKFURTER -->
+            <div class="external-card card-currency">
+                <div class="ext-card-header">
+                    <span class="ext-icon">💱</span>
+                    <div>
+                        <h4 class="ext-title">CURRENCY SERVICE — FRANKFURTER</h4>
+                        <span class="ext-source">Frankfurter Public API</span>
+                    </div>
+                </div>
+                <div class="ext-card-body">
+                    <div class="ext-stat-row"><span>Exchange Pair:</span> <strong>${escapeXml(baseCur)} → ${escapeXml(targetCur)}</strong></div>
+                    <div class="ext-stat-row"><span>Exchange Rate:</span> <strong>${escapeXml(exRate)}</strong></div>
+                    <div class="ext-stat-row"><span>Converted Price:</span> <strong>$${convertedPrice.toLocaleString("en-US", {minimumFractionDigits: 2})} USD</strong></div>
+                    <div class="ext-stat-row"><span>Formula:</span> <code>${prodPrice} × ${exRate}</code></div>
+                    <div class="ext-stat-status">${escapeXml(curStatus)}</div>
+                </div>
+            </div>
+
+            <!-- 4. WEATHER SERVICE — OPEN-METEO -->
+            <div class="external-card card-weather">
+                <div class="ext-card-header">
+                    <span class="ext-icon">🌤️</span>
+                    <div>
+                        <h4 class="ext-title">WEATHER SERVICE — OPEN-METEO</h4>
+                        <span class="ext-source">Open-Meteo Public API</span>
+                    </div>
+                </div>
+                <div class="ext-card-body">
+                    <div class="ext-stat-row"><span>Location:</span> <strong>${escapeXml(wtrLoc)}</strong></div>
+                    <div class="ext-stat-row"><span>Temperature:</span> <strong>${escapeXml(wtrTemp)}°C</strong></div>
+                    <div class="ext-stat-row"><span>Wind Speed:</span> <strong>${escapeXml(wtrWind)} km/h</strong></div>
+                    <div class="ext-stat-row"><span>Condition:</span> <strong>${escapeXml(wtrCond)}</strong></div>
+                    <div class="ext-stat-status">${escapeXml(wtrStatus)}</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- COLLAPSIBLE RAW SOAP XML ACCORDION -->
+        <div class="soap-raw-accordion" style="margin-top: 16px;">
+            <details>
+                <summary class="soap-raw-summary">
+                    <span>📄 Inspect Raw GetProductExternalInfoResponse SOAP XML</span>
+                    <span class="soap-raw-tag">SOAP 1.1 Envelope</span>
+                </summary>
+                <div class="soap-raw-content">
+                    <pre><code>${escapeXml(formatXmlForDisplay(result.rawXml))}</code></pre>
+                </div>
+            </details>
+        </div>
+    `;
+
+    container.appendChild(extWrapper);
+
+    showResult("SOAP getProductExternalInfo coordinated 4 distributed services successfully!", "success", "SOAP Coordination");
+
+    // Also update SOAP response card
+    renderSoapResponseCard(
+        "getProductExternalInfo",
+        "SUCCESS",
+        "Coordinated AWS RDS + AWS ECS Supplier + Frankfurter + Open-Meteo",
+        { id: prodId, name: prodName, quantity: prodQuantity, price: prodPrice, category: prodCategory },
+        result.rawXml
+    );
+
+    if (idInput) idInput.value = "";
 }
 
 // --------------------------------------------------------------------------
@@ -261,20 +871,17 @@ function validateProductFields(idRaw, name, quantityRaw, priceRaw, category) {
 }
 
 // --------------------------------------------------------------------------
-// DOM Rendering: Display Product Details (Safe DOM Construction)
+// DOM Rendering: Display Product Details
 // --------------------------------------------------------------------------
 function displayProduct(product) {
     const container = document.getElementById("productDetails");
     if (!container) return;
 
-    // Clear previous contents safely
     container.innerHTML = "";
 
-    // Wrapper
     const cardView = document.createElement("div");
     cardView.className = "product-card-view";
 
-    // Hero Section
     const hero = document.createElement("div");
     hero.className = "product-hero";
 
@@ -299,7 +906,6 @@ function displayProduct(product) {
     hero.appendChild(heroPrice);
     cardView.appendChild(hero);
 
-    // Specification Grid
     const specGrid = document.createElement("div");
     specGrid.className = "details-spec-grid";
 
@@ -314,7 +920,6 @@ function displayProduct(product) {
 
     cardView.appendChild(specGrid);
 
-    // Quick Actions
     const actions = document.createElement("div");
     actions.className = "product-quick-actions";
 
@@ -339,7 +944,7 @@ function displayProduct(product) {
     const supplierBtn = document.createElement("button");
     supplierBtn.type = "button";
     supplierBtn.className = "btn btn-info btn-sm";
-    supplierBtn.textContent = "🏢 Check Supplier Stock";
+    supplierBtn.textContent = "🏢 SOAP: Check Supplier";
     supplierBtn.onclick = () => {
         checkSupplierAvailability(product.id);
     };
@@ -347,7 +952,7 @@ function displayProduct(product) {
     const externalBtn = document.createElement("button");
     externalBtn.type = "button";
     externalBtn.className = "btn btn-primary btn-sm";
-    externalBtn.textContent = "🌐 External Intelligence";
+    externalBtn.textContent = "🌐 SOAP: External Info";
     externalBtn.onclick = () => {
         document.getElementById("externalId").value = product.id;
         switchTab("external");
@@ -367,7 +972,6 @@ function displayProduct(product) {
 
     container.appendChild(cardView);
 
-    // Update Details Badge
     const badge = document.getElementById("detailsStatusBadge");
     if (badge) {
         badge.textContent = product.category;
@@ -415,7 +1019,7 @@ function clearProductDetails() {
 
     const desc = document.createElement("p");
     desc.className = "empty-desc";
-    desc.textContent = "Retrieve a product using \"Get Product\" or add a new one to inspect its full details here.";
+    desc.textContent = "Retrieve a product using \"Get Product\" or add a new one via SOAP to inspect its details here.";
 
     empty.appendChild(icon);
     empty.appendChild(title);
@@ -456,13 +1060,12 @@ function prefillUpdateForm(product) {
 }
 
 // --------------------------------------------------------------------------
-// Status Notification / Result Display
+// Status Notification
 // --------------------------------------------------------------------------
 function showResult(message, type = "info", title = "") {
     const resultEl = document.getElementById("result");
     if (!resultEl) return;
 
-    // Reset base classes
     resultEl.className = "result-banner";
 
     let iconText = "ℹ️";
@@ -479,7 +1082,7 @@ function showResult(message, type = "info", title = "") {
     } else {
         resultEl.classList.add("result-info");
         iconText = "ℹ️";
-        defaultTitle = "Notification";
+        defaultTitle = "SOAP Notification";
     }
 
     resultEl.innerHTML = "";
@@ -597,248 +1200,4 @@ function renderRecentCacheList() {
 
         container.appendChild(item);
     });
-}
-
-// --------------------------------------------------------------------------
-// Supplier Microservice Integration (Port 8081 via Inventory Backend)
-// --------------------------------------------------------------------------
-async function checkSupplierAvailability(productId) {
-    const container = document.getElementById("supplierDetailsContainer");
-    if (!container) return;
-
-    container.innerHTML = `
-        <div class="supplier-loading">
-            <span class="supplier-spinner">🔄</span>
-            <span>Querying independent Supplier Service (Port 8081)...</span>
-        </div>
-    `;
-
-    try {
-        const response = await fetch("/api/products/" + productId + "/supplier");
-        const data = await response.json();
-
-        container.innerHTML = "";
-
-        const card = document.createElement("div");
-        card.className = "supplier-card " + (data.available ? "supplier-available" : "supplier-unavailable");
-
-        const header = document.createElement("div");
-        header.className = "supplier-card-header";
-
-        const titleGroup = document.createElement("div");
-        const badge = document.createElement("span");
-        badge.className = "supplier-status-badge " + (data.available ? "badge-avail" : "badge-unavail");
-        badge.textContent = data.available ? "✔ Supplier Stock Available" : "✖ Not Available";
-
-        const title = document.createElement("h4");
-        title.className = "supplier-card-title";
-        title.textContent = data.supplierName || "Supplier";
-
-        titleGroup.appendChild(badge);
-        titleGroup.appendChild(title);
-
-        const portBadge = document.createElement("span");
-        portBadge.className = "supplier-service-tag";
-        portBadge.textContent = "Supplier Service :8081";
-
-        header.appendChild(titleGroup);
-        header.appendChild(portBadge);
-
-        const grid = document.createElement("div");
-        grid.className = "supplier-grid";
-
-        grid.appendChild(createSupplierStat("Product ID", "#" + data.productId));
-        grid.appendChild(createSupplierStat("Available Quantity", data.availableQuantity + " units"));
-        grid.appendChild(createSupplierStat("Supplier Price", "₹" + Number(data.supplierPrice).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
-        grid.appendChild(createSupplierStat("Status", data.available ? "In Stock" : "Unavailable"));
-
-        card.appendChild(header);
-        card.appendChild(grid);
-
-        if (data.message) {
-            const note = document.createElement("div");
-            note.className = "supplier-note";
-            note.textContent = data.message;
-            card.appendChild(note);
-        }
-
-        container.appendChild(card);
-        showResult("Supplier data received from port 8081: " + (data.available ? "Available" : "Not Available"), data.available ? "success" : "info", "Distributed Call");
-    } catch (err) {
-        container.innerHTML = `
-            <div class="supplier-error">
-                ⚠️ Could not communicate with Supplier Service. Ensure the service is running on port 8081.
-            </div>
-        `;
-        showResult("Failed to reach Supplier Service on port 8081", "error", "Network Error");
-    }
-}
-
-function createSupplierStat(label, value) {
-    const div = document.createElement("div");
-    div.className = "supplier-stat-item";
-
-    const lbl = document.createElement("span");
-    lbl.className = "supplier-stat-label";
-    lbl.textContent = label;
-
-    const val = document.createElement("span");
-    val.className = "supplier-stat-value";
-    val.textContent = value;
-
-    div.appendChild(lbl);
-    div.appendChild(val);
-    return div;
-}
-
-// --------------------------------------------------------------------------
-// Multi-API External Intelligence (Frankfurter + Open-Meteo + Supplier)
-// --------------------------------------------------------------------------
-async function queryExternalInfo(productIdOpt) {
-    const idInput = document.getElementById("externalId");
-    let productId = productIdOpt;
-
-    if (!productId && idInput) {
-        const raw = idInput.value.trim();
-        if (!raw || isNaN(raw) || parseInt(raw, 10) <= 0) {
-            showResult("Please enter a valid positive Product ID.", "error", "Validation Error");
-            return;
-        }
-        productId = parseInt(raw, 10);
-    }
-
-    const container = document.getElementById("externalInfoResult");
-    if (!container) return;
-
-    container.innerHTML = `
-        <div class="external-loading">
-            <span class="external-spinner">🔄</span>
-            <span>Querying AWS RDS Database + Supplier Service (:8081) + Frankfurter API + Open-Meteo API...</span>
-        </div>
-    `;
-
-    try {
-        const response = await fetch("/api/products/" + productId + "/external-info");
-        const data = await response.json();
-
-        container.innerHTML = "";
-
-        if (!data.success) {
-            container.innerHTML = `
-                <div class="external-error-box">
-                    <span class="err-icon">⚠️</span>
-                    <div>
-                        <strong>Query Failed:</strong> ${data.message || "Product not found"}
-                    </div>
-                </div>
-            `;
-            showResult(data.message || "Product not found", "error", "External Query");
-            return;
-        }
-
-        const grid = document.createElement("div");
-        grid.className = "external-quad-grid";
-
-        // Card 1: Product Database Info
-        const prodCard = document.createElement("div");
-        prodCard.className = "external-card card-database";
-        prodCard.innerHTML = `
-            <div class="ext-card-header">
-                <span class="ext-icon">📦</span>
-                <div>
-                    <h4 class="ext-title">Database Record</h4>
-                    <span class="ext-source">AWS RDS PostgreSQL</span>
-                </div>
-            </div>
-            <div class="ext-card-body">
-                <div class="ext-stat-row"><span>Product ID:</span> <strong>#${data.product.id}</strong></div>
-                <div class="ext-stat-row"><span>Name:</span> <strong>${data.product.name}</strong></div>
-                <div class="ext-stat-row"><span>Category:</span> <strong>${data.product.category}</strong></div>
-                <div class="ext-stat-row"><span>Stock Qty:</span> <strong>${data.product.quantity} units</strong></div>
-                <div class="ext-stat-row"><span>Price:</span> <strong>₹${Number(data.product.price).toLocaleString("en-IN", {minimumFractionDigits: 2})}</strong></div>
-            </div>
-        `;
-        grid.appendChild(prodCard);
-
-        // Card 2: Supplier Service Info
-        const sup = data.supplierInfo;
-        const supCard = document.createElement("div");
-        supCard.className = "external-card " + (sup && sup.available ? "card-supplier-avail" : "card-supplier-unavail");
-        supCard.innerHTML = `
-            <div class="ext-card-header">
-                <span class="ext-icon">🏢</span>
-                <div>
-                    <h4 class="ext-title">Supplier Availability</h4>
-                    <span class="ext-source">Distributed Service :8081</span>
-                </div>
-            </div>
-            <div class="ext-card-body">
-                <div class="ext-stat-row"><span>Supplier Name:</span> <strong>${sup ? sup.supplierName : "N/A"}</strong></div>
-                <div class="ext-stat-row"><span>Available Stock:</span> <strong>${sup ? sup.availableQuantity : 0} units</strong></div>
-                <div class="ext-stat-row"><span>Supplier Price:</span> <strong>₹${sup ? Number(sup.supplierPrice).toLocaleString("en-IN", {minimumFractionDigits: 2}) : "0.00"}</strong></div>
-                <div class="ext-stat-row"><span>Status:</span> <span class="ext-badge ${sup && sup.available ? 'badge-success-ext' : 'badge-danger-ext'}">${sup && sup.available ? 'Available' : 'Unavailable'}</span></div>
-                <div class="ext-stat-status">${sup && sup.message ? sup.message : ""}</div>
-            </div>
-        `;
-        grid.appendChild(supCard);
-
-        // Card 3: Frankfurter Currency Exchange
-        const cur = data.currencyInfo;
-        const curCard = document.createElement("div");
-        curCard.className = "external-card card-currency";
-        curCard.innerHTML = `
-            <div class="ext-card-header">
-                <span class="ext-icon">💱</span>
-                <div>
-                    <h4 class="ext-title">Currency Conversion</h4>
-                    <span class="ext-source">Frankfurter Public API</span>
-                </div>
-            </div>
-            <div class="ext-card-body">
-                <div class="ext-stat-row"><span>Base Currency:</span> <strong>${cur ? cur.baseCurrency : "EUR"}</strong></div>
-                <div class="ext-stat-row"><span>Target Currency:</span> <strong>${cur ? cur.targetCurrency : "USD"}</strong></div>
-                <div class="ext-stat-row"><span>Exchange Rate:</span> <strong>${cur ? cur.exchangeRate : "N/A"}</strong></div>
-                <div class="ext-stat-row"><span>Converted Price:</span> <strong>$${cur ? Number(cur.convertedPrice).toLocaleString("en-US", {minimumFractionDigits: 2}) : "0.00"} USD</strong></div>
-                <div class="ext-stat-status">${cur && cur.status ? cur.status : ""}</div>
-            </div>
-        `;
-        grid.appendChild(curCard);
-
-        // Card 4: Open-Meteo Weather Info
-        const wtr = data.weatherInfo;
-        const wtrCard = document.createElement("div");
-        wtrCard.className = "external-card card-weather";
-        wtrCard.innerHTML = `
-            <div class="ext-card-header">
-                <span class="ext-icon">🌤️</span>
-                <div>
-                    <h4 class="ext-title">Warehouse Weather</h4>
-                    <span class="ext-source">Open-Meteo Public API</span>
-                </div>
-            </div>
-            <div class="ext-card-body">
-                <div class="ext-stat-row"><span>Location:</span> <strong>${wtr ? wtr.location : "Hub"}</strong></div>
-                <div class="ext-stat-row"><span>Temperature:</span> <strong>${wtr ? wtr.temperature : 0.0}°C</strong></div>
-                <div class="ext-stat-row"><span>Wind Speed:</span> <strong>${wtr ? wtr.windSpeed : 0.0} km/h</strong></div>
-                <div class="ext-stat-row"><span>Condition:</span> <strong>${wtr ? wtr.weatherCondition : "N/A"}</strong></div>
-                <div class="ext-stat-status">${wtr && wtr.status ? wtr.status : ""}</div>
-            </div>
-        `;
-        grid.appendChild(wtrCard);
-
-        container.appendChild(grid);
-        showResult("Combined intelligence retrieved across 4 distributed sources!", "success", "External Info Retrieved");
-
-        if (idInput) idInput.value = "";
-    } catch (err) {
-        container.innerHTML = `
-            <div class="external-error-box">
-                <span class="err-icon">⚠️</span>
-                <div>
-                    <strong>Connection Error:</strong> Unable to retrieve external information. Ensure backend server is active.
-                </div>
-            </div>
-        `;
-        showResult("Network error communicating with server", "error", "Network Error");
-    }
 }
