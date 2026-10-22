@@ -144,32 +144,121 @@ async function callSoapService(operationName, bodyPayloadXml) {
 }
 
 // --------------------------------------------------------------------------
-// Tab Navigation
+// Navigation & Views
 // --------------------------------------------------------------------------
-function switchTab(tabId) {
-    const validTabs = ["add", "get", "update", "delete", "adjust", "external"];
-    if (!validTabs.includes(tabId)) return;
+let currentActiveSection = "overview";
 
-    // Update tab buttons
-    document.querySelectorAll(".tab-btn").forEach(btn => {
-        btn.classList.remove("active");
-    });
-    const activeTabBtn = document.getElementById("tab-btn-" + tabId);
-    if (activeTabBtn) activeTabBtn.classList.add("active");
+function navigateTo(sectionId) {
+    const validSections = ["overview", "products", "activity", "restocking", "operations"];
+    if (!validSections.includes(sectionId)) return;
 
-    // Update sidebar navigation items
+    currentActiveSection = sectionId;
+
+    // Update nav items
     document.querySelectorAll(".nav-item").forEach(item => {
         item.classList.remove("active");
     });
-    const activeNavBtn = document.getElementById("nav-" + tabId);
-    if (activeNavBtn) activeNavBtn.classList.add("active");
+    const activeNav = document.getElementById("nav-" + sectionId);
+    if (activeNav) activeNav.classList.add("active");
 
-    // Update tab panes
-    document.querySelectorAll(".tab-pane").forEach(pane => {
-        pane.classList.remove("active");
+    // Update view sections
+    document.querySelectorAll(".view-section").forEach(sec => {
+        sec.classList.remove("active");
     });
-    const activePane = document.getElementById("tab-pane-" + tabId);
-    if (activePane) activePane.classList.add("active");
+    const activeView = document.getElementById("view-" + sectionId);
+    if (activeView) activeView.classList.add("active");
+
+    // Update Header Title & Subtitle
+    const titleEl = document.getElementById("pageTitle");
+    const subEl = document.getElementById("pageSubtitle");
+    if (titleEl && subEl) {
+        switch (sectionId) {
+            case "overview":
+                titleEl.textContent = "Inventory Overview";
+                subEl.textContent = "Live summary of catalog stock, low-inventory alerts, and recent movements.";
+                break;
+            case "products":
+                titleEl.textContent = "Product Catalog";
+                subEl.textContent = "Manage inventory items, stock levels, categories, and pricing.";
+                renderInventoryTable();
+                break;
+            case "activity":
+                titleEl.textContent = "Stock Activity";
+                subEl.textContent = "Chronological audit trail of all inventory receipts, removals, and adjustments.";
+                break;
+            case "restocking":
+                titleEl.textContent = "Restocking & Replenishment";
+                subEl.textContent = "Automated replenishment recommendations and supplier availability.";
+                renderSmartRestocking();
+                break;
+            case "operations":
+                titleEl.textContent = "Warehouse Operations";
+                subEl.textContent = "Facility weather conditions and operational advisories affecting logistics and staging.";
+                break;
+        }
+    }
+}
+
+function refreshCurrentView() {
+    switch (currentActiveSection) {
+        case "overview":
+            fetchAllProducts(true);
+            fetchStockMovements(true);
+            break;
+        case "products":
+            fetchAllProducts(true);
+            break;
+        case "activity":
+            fetchStockMovements(true);
+            break;
+        case "restocking":
+            fetchAllProducts(true).then(() => renderSmartRestocking());
+            break;
+        case "operations":
+            fetchWeatherAdvisories(true);
+            break;
+    }
+}
+
+// Modal management
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.add("show");
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.remove("show");
+    }
+}
+
+function onBackdropClick(event, modalId) {
+    if (event.target && event.target.id === modalId) {
+        closeModal(modalId);
+    }
+}
+
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+        document.querySelectorAll(".modal-overlay.show").forEach(modal => {
+            modal.classList.remove("show");
+        });
+    }
+});
+
+function switchTab(tabId) {
+    if (tabId === "add") {
+        openModal("modal-add");
+    } else if (tabId === "update") {
+        openModal("modal-update");
+    } else if (tabId === "adjust") {
+        openModal("modal-adjust");
+    } else if (tabId === "delete") {
+        openModal("modal-delete");
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -273,13 +362,13 @@ async function addProduct() {
             </inv:product>
         </inv:AddProductRequest>`;
 
-    showResult("Dispatching SOAP AddProductRequest to /ws...", "info", "SOAP Request");
+    showResult("Saving product...", "info", "Add Product");
 
     const result = await callSoapService("addProduct", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "SOAP service communication failure.";
-        showResult(errorMsg, "error", "SOAP Fault / Error");
+        const errorMsg = result.fault || "Service communication failure.";
+        showResult(errorMsg, "error", "Add Product");
         renderSoapResponseCard("addProduct", "FAULT", errorMsg, product, result.rawXml);
         return;
     }
@@ -288,17 +377,18 @@ async function addProduct() {
     const responseNode = getXmlNode(result.xmlDoc, "AddProductResponse");
     const successStr = getXmlValue(responseNode, "success");
     const isSuccess = successStr.toLowerCase() === "true";
-    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product added successfully via SOAP" : "Failed to add product");
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product added successfully" : "Failed to add product");
 
     if (isSuccess) {
+        closeModal("modal-add");
         displayProduct(product);
         clearAddForm();
-        showResult(message, "success", "SOAP: addProduct");
+        showResult("Product #" + product.id + " (" + product.name + ") added successfully.", "success", "Product Added");
         renderSoapResponseCard("addProduct", "SUCCESS", message, product, result.rawXml);
-        await fetchAllProducts(false, "SOAP Added #" + product.id);
+        await fetchAllProducts(false, "Added #" + product.id);
         await fetchStockMovements(false);
     } else {
-        showResult(message, "error", "SOAP: addProduct");
+        showResult(message, "error", "Failed to Add Product");
         renderSoapResponseCard("addProduct", "FAILED", message, product, result.rawXml);
     }
 }
@@ -322,13 +412,13 @@ async function getProduct() {
             <inv:id>${id}</inv:id>
         </inv:GetProductRequest>`;
 
-    showResult(`Dispatching SOAP GetProductRequest for ID #${id} to /ws...`, "info", "SOAP Request");
+    showResult(`Retrieving product #${id}...`, "info", "Find Product");
 
     const result = await callSoapService("getProduct", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "SOAP service communication failure.";
-        showResult(errorMsg, "error", "SOAP Fault / Error");
+        const errorMsg = result.fault || "Service communication failure.";
+        showResult(errorMsg, "error", "Find Product");
         clearProductDetails();
         renderSoapResponseCard("getProduct", "FAULT", errorMsg, { id: id }, result.rawXml);
         return;
@@ -351,15 +441,15 @@ async function getProduct() {
         };
 
         productCache.set(product.id, product);
-        updateStatistics("SOAP Retrieved #" + id);
+        updateStatistics("Retrieved #" + id);
         displayProduct(product);
         prefillUpdateForm(product);
-        showResult(message || "Product retrieved successfully via SOAP", "success", "SOAP: getProduct");
+        showResult(message || "Product retrieved successfully.", "success", "Product Found");
         renderSoapResponseCard("getProduct", "SUCCESS", message || "Product found successfully", product, result.rawXml);
     } else {
         clearProductDetails();
-        const notFoundMsg = message || `Product with ID ${id} not found in database.`;
-        showResult(notFoundMsg, "error", "SOAP: getProduct");
+        const notFoundMsg = message || `Product with ID ${id} not found in catalog.`;
+        showResult(notFoundMsg, "error", "Product Not Found");
         renderSoapResponseCard("getProduct", "NOT FOUND", notFoundMsg, { id: id }, result.rawXml);
     }
 
@@ -403,13 +493,13 @@ async function updateProduct() {
             </inv:product>
         </inv:UpdateProductRequest>`;
 
-    showResult(`Dispatching SOAP UpdateProductRequest for ID #${product.id} to /ws...`, "info", "SOAP Request");
+    showResult(`Updating product #${product.id}...`, "info", "Update Product");
 
     const result = await callSoapService("updateProduct", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "SOAP service communication failure.";
-        showResult(errorMsg, "error", "SOAP Fault / Error");
+        const errorMsg = result.fault || "Service communication failure.";
+        showResult(errorMsg, "error", "Update Product");
         renderSoapResponseCard("updateProduct", "FAULT", errorMsg, product, result.rawXml);
         return;
     }
@@ -418,17 +508,18 @@ async function updateProduct() {
     const responseNode = getXmlNode(result.xmlDoc, "UpdateProductResponse");
     const successStr = getXmlValue(responseNode, "success");
     const isSuccess = successStr.toLowerCase() === "true";
-    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product updated successfully via SOAP" : "Failed to update product");
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product updated successfully" : "Failed to update product");
 
     if (isSuccess) {
+        closeModal("modal-update");
         displayProduct(product);
         clearUpdateForm();
-        showResult(message, "success", "SOAP: updateProduct");
+        showResult("Product #" + product.id + " updated successfully.", "success", "Product Updated");
         renderSoapResponseCard("updateProduct", "SUCCESS", message, product, result.rawXml);
-        await fetchAllProducts(false, "SOAP Updated #" + product.id);
+        await fetchAllProducts(false, "Updated #" + product.id);
         await fetchStockMovements(false);
     } else {
-        showResult(message, "error", "SOAP: updateProduct");
+        showResult(message, "error", "Failed to Update Product");
         renderSoapResponseCard("updateProduct", "FAILED", message, product, result.rawXml);
     }
 }
@@ -452,13 +543,13 @@ async function deleteProduct() {
             <inv:id>${id}</inv:id>
         </inv:DeleteProductRequest>`;
 
-    showResult(`Dispatching SOAP DeleteProductRequest for ID #${id} to /ws...`, "info", "SOAP Request");
+    showResult(`Deleting product #${id}...`, "info", "Delete Product");
 
     const result = await callSoapService("deleteProduct", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "SOAP service communication failure.";
-        showResult(errorMsg, "error", "SOAP Fault / Error");
+        const errorMsg = result.fault || "Service communication failure.";
+        showResult(errorMsg, "error", "Delete Product");
         renderSoapResponseCard("deleteProduct", "FAULT", errorMsg, { id: id }, result.rawXml);
         return;
     }
@@ -467,10 +558,11 @@ async function deleteProduct() {
     const responseNode = getXmlNode(result.xmlDoc, "DeleteProductResponse");
     const successStr = getXmlValue(responseNode, "success");
     const isSuccess = successStr.toLowerCase() === "true";
-    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product deleted successfully via SOAP" : "Failed to delete product");
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product deleted successfully" : "Failed to delete product");
 
     if (isSuccess) {
-        showResult(message, "success", "SOAP: deleteProduct");
+        closeModal("modal-delete");
+        showResult("Product #" + id + " permanently deleted from catalog.", "success", "Product Deleted");
         renderSoapResponseCard("deleteProduct", "SUCCESS", message, { id: id }, result.rawXml);
         document.getElementById("deleteId").value = "";
 
@@ -480,10 +572,10 @@ async function deleteProduct() {
             badge.style.backgroundColor = "#fef2f2";
             badge.style.color = "#dc2626";
         }
-        await fetchAllProducts(false, "SOAP Deleted #" + id);
+        await fetchAllProducts(false, "Deleted #" + id);
         await fetchStockMovements(false);
     } else {
-        showResult(message, "error", "SOAP: deleteProduct");
+        showResult(message, "error", "Failed to Delete Product");
         renderSoapResponseCard("deleteProduct", "FAILED", message, { id: id }, result.rawXml);
     }
 }
@@ -498,7 +590,7 @@ async function checkSupplierAvailability(productId) {
     container.innerHTML = `
         <div class="supplier-loading">
             <span class="supplier-spinner">🔄</span>
-            <span>Querying independent Supplier Service via SOAP CheckSupplierAvailabilityRequest (/ws)...</span>
+            <span>Checking supplier availability...</span>
         </div>
     `;
 
@@ -512,10 +604,10 @@ async function checkSupplierAvailability(productId) {
     if (!result.ok || !result.xmlDoc) {
         container.innerHTML = `
             <div class="supplier-error">
-                ⚠️ Could not communicate with Supplier Service via SOAP. Verify backend connection.
+                ⚠️ Supplier information is temporarily unavailable.
             </div>
         `;
-        showResult("Failed to reach Supplier Service via SOAP", "error", "Network Error");
+        showResult("Supplier information is temporarily unavailable.", "error", "Supplier Check");
         return;
     }
 
@@ -536,7 +628,7 @@ async function checkSupplierAvailability(productId) {
     const titleGroup = document.createElement("div");
     const badge = document.createElement("span");
     badge.className = "supplier-status-badge " + (available ? "badge-avail" : "badge-unavail");
-    badge.textContent = available ? "✔ Supplier Stock Available" : "✖ Not Available";
+    badge.textContent = available ? "✔ Supplier Available" : "✖ Supplier Information Unavailable";
 
     const title = document.createElement("h4");
     title.className = "supplier-card-title";
@@ -545,26 +637,21 @@ async function checkSupplierAvailability(productId) {
     titleGroup.appendChild(badge);
     titleGroup.appendChild(title);
 
-    const portBadge = document.createElement("span");
-    portBadge.className = "supplier-service-tag";
-    portBadge.textContent = "SOAP ➔ AWS ECS Supplier";
-
     header.appendChild(titleGroup);
-    header.appendChild(portBadge);
 
     const grid = document.createElement("div");
     grid.className = "supplier-grid";
 
     grid.appendChild(createSupplierStat("Product ID", "#" + productId));
-    grid.appendChild(createSupplierStat("Available Quantity", availableQuantity + " units"));
-    grid.appendChild(createSupplierStat("Supplier Price", "₹" + supplierPrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
-    grid.appendChild(createSupplierStat("Availability", available ? "AVAILABLE" : "UNAVAILABLE"));
+    grid.appendChild(createSupplierStat("Available Quantity", available ? (availableQuantity + " units") : "Unavailable"));
+    grid.appendChild(createSupplierStat("Wholesale Price", available && supplierPrice > 0 ? ("₹" + supplierPrice.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : "Estimated Cost Unavailable"));
+    grid.appendChild(createSupplierStat("Status", available ? "Supplier Available" : "Supplier Information Unavailable"));
 
     card.appendChild(header);
     card.appendChild(grid);
 
     container.appendChild(card);
-    showResult(`SOAP checkSupplierAvailability received for #${productId}: ${available ? "AVAILABLE" : "UNAVAILABLE"}`, available ? "success" : "info", "SOAP Response");
+    showResult(`Supplier status received for #${productId}: ${available ? "Supplier Available" : "Supplier Information Unavailable"}`, available ? "success" : "info", "Supplier Check");
 }
 
 function createSupplierStat(label, value) {
@@ -607,7 +694,7 @@ async function queryExternalInfo(productIdOpt) {
     container.innerHTML = `
         <div class="external-loading">
             <span class="external-spinner">🔄</span>
-            <span>Dispatching SOAP GetProductExternalInfoRequest to /ws across 4 distributed sources...</span>
+            <span>Retrieving comprehensive product details...</span>
         </div>
     `;
 
@@ -620,16 +707,16 @@ async function queryExternalInfo(productIdOpt) {
     const result = await callSoapService("getProductExternalInfo", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "SOAP service communication failure.";
+        const errorMsg = result.fault || "Service communication failure.";
         container.innerHTML = `
             <div class="external-error-box">
                 <span class="err-icon">⚠️</span>
                 <div>
-                    <strong>SOAP Error:</strong> ${escapeXml(errorMsg)}
+                    <strong>Query Notice:</strong> ${escapeXml(errorMsg)}
                 </div>
             </div>
         `;
-        showResult(errorMsg, "error", "SOAP Fault");
+        showResult(errorMsg, "error", "Query Error");
         return;
     }
 
@@ -643,11 +730,11 @@ async function queryExternalInfo(productIdOpt) {
             <div class="external-error-box">
                 <span class="err-icon">⚠️</span>
                 <div>
-                    <strong>SOAP Query Result:</strong> ${escapeXml(message || "Product not found")}
+                    <strong>Result:</strong> ${escapeXml(message || "Product not found")}
                 </div>
             </div>
         `;
-        showResult(message || "Product not found", "error", "External Query");
+        showResult(message || "Product not found", "error", "Product Query");
         return;
     }
 
@@ -677,13 +764,13 @@ async function queryExternalInfo(productIdOpt) {
 
     // Extract Weather Data
     const wtrNode = getXmlNode(responseNode, "weatherInfo");
-    const wtrLoc = getXmlValue(wtrNode, "location") || "Mumbai Central Distribution Hub";
+    const wtrLoc = getXmlValue(wtrNode, "location") || "Distribution Hub";
     const wtrTemp = getXmlValue(wtrNode, "temperature") || "0.0";
     const wtrWind = getXmlValue(wtrNode, "windSpeed") || "0.0";
     const wtrCond = getXmlValue(wtrNode, "weatherCondition") || "N/A";
     const wtrStatus = getXmlValue(wtrNode, "status") || "OK";
 
-    // Build the exact structured display required by the project specifications
+    // Build the structured display
     container.innerHTML = "";
 
     const extWrapper = document.createElement("div");
@@ -694,57 +781,21 @@ async function queryExternalInfo(productIdOpt) {
         <div class="ext-intel-header">
             <div class="ext-intel-title-row">
                 <span class="ext-pulse-dot"></span>
-                <span class="ext-main-title">EXTERNAL PRODUCT INFORMATION</span>
-                <span class="ext-proto-tag">SOAP: getProductExternalInfo</span>
+                <span class="ext-main-title">Comprehensive Product Information</span>
             </div>
-            <p class="ext-intel-desc">Single SOAP operation coordinating 4 distributed cloud services via AWS ECS Fargate</p>
+            <p class="ext-intel-desc">Combined inventory catalog, wholesale supplier, currency, and operational facility status</p>
         </div>
 
-        <!-- SERVICE INTEGRATION TRANSPARENCY BAR -->
-        <div class="service-integration-card">
-            <div class="svc-int-title">SERVICE INTEGRATION</div>
-            <div class="svc-int-grid">
-                <div class="svc-int-item">
-                    <span class="svc-check">✓</span>
-                    <div class="svc-item-info">
-                        <strong>Inventory Database</strong>
-                        <span>Amazon RDS PostgreSQL</span>
-                    </div>
-                </div>
-                <div class="svc-int-item">
-                    <span class="svc-check">✓</span>
-                    <div class="svc-item-info">
-                        <strong>Supplier Service</strong>
-                        <span>AWS ECS / REST</span>
-                    </div>
-                </div>
-                <div class="svc-int-item">
-                    <span class="svc-check">✓</span>
-                    <div class="svc-item-info">
-                        <strong>Currency Service</strong>
-                        <span>Frankfurter API / REST</span>
-                    </div>
-                </div>
-                <div class="svc-int-item">
-                    <span class="svc-check">✓</span>
-                    <div class="svc-item-info">
-                        <strong>Weather Service</strong>
-                        <span>Open-Meteo API / REST</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 4 INDEPENDENT SERVICE CARDS -->
+        <!-- 4 SERVICE CARDS -->
         <div class="external-quad-grid">
 
-            <!-- 1. PRODUCT DATA — AWS RDS -->
+            <!-- 1. PRODUCT DATA -->
             <div class="external-card card-database">
                 <div class="ext-card-header">
                     <span class="ext-icon">🗄️</span>
                     <div>
-                        <h4 class="ext-title">PRODUCT DATA — AWS RDS</h4>
-                        <span class="ext-source">Amazon RDS PostgreSQL</span>
+                        <h4 class="ext-title">Catalog Inventory</h4>
+                        <span class="ext-source">Internal Database</span>
                     </div>
                 </div>
                 <div class="ext-card-body">
@@ -756,49 +807,48 @@ async function queryExternalInfo(productIdOpt) {
                 </div>
             </div>
 
-            <!-- 2. SUPPLIER SERVICE — AWS ECS -->
+            <!-- 2. SUPPLIER SERVICE -->
             <div class="external-card ${supAvailable ? 'card-supplier-avail' : 'card-supplier-unavail'}">
                 <div class="ext-card-header">
                     <span class="ext-icon">🏢</span>
                     <div>
-                        <h4 class="ext-title">SUPPLIER SERVICE — AWS ECS</h4>
-                        <span class="ext-source">Distributed Microservice</span>
+                        <h4 class="ext-title">Supplier Information</h4>
+                        <span class="ext-source">Wholesale Supplier</span>
                     </div>
                 </div>
                 <div class="ext-card-body">
                     <div class="ext-stat-row"><span>Supplier:</span> <strong>${escapeXml(supName)}</strong></div>
-                    <div class="ext-stat-row"><span>Available Quantity:</span> <strong>${escapeXml(supQuantity)} units</strong></div>
-                    <div class="ext-stat-row"><span>Supplier Price:</span> <strong>₹${supPrice.toLocaleString("en-IN", {minimumFractionDigits: 2})}</strong></div>
-                    <div class="ext-stat-row"><span>Availability:</span> <span class="ext-badge ${supAvailable ? 'badge-success-ext' : 'badge-danger-ext'}">${supAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}</span></div>
-                    <div class="ext-stat-status">${escapeXml(supStatus)}</div>
+                    <div class="ext-stat-row"><span>Available Quantity:</span> <strong>${supAvailable ? escapeXml(supQuantity) + ' units' : 'Unavailable'}</strong></div>
+                    <div class="ext-stat-row"><span>Wholesale Price:</span> <strong>${supAvailable && supPrice > 0 ? '₹' + supPrice.toLocaleString("en-IN", {minimumFractionDigits: 2}) : 'Unavailable'}</strong></div>
+                    <div class="ext-stat-row"><span>Availability:</span> <span class="ext-badge ${supAvailable ? 'badge-success-ext' : 'badge-danger-ext'}">${supAvailable ? 'Supplier Available' : 'Supplier Information Unavailable'}</span></div>
+                    <div class="ext-stat-status">${supAvailable ? 'Active Supplier' : 'Unavailable'}</div>
                 </div>
             </div>
 
-            <!-- 3. CURRENCY SERVICE — FRANKFURTER -->
+            <!-- 3. CURRENCY SERVICE -->
             <div class="external-card card-currency">
                 <div class="ext-card-header">
                     <span class="ext-icon">💱</span>
                     <div>
-                        <h4 class="ext-title">CURRENCY SERVICE — FRANKFURTER</h4>
-                        <span class="ext-source">Frankfurter Public API</span>
+                        <h4 class="ext-title">Currency Pricing</h4>
+                        <span class="ext-source">Live Rates</span>
                     </div>
                 </div>
                 <div class="ext-card-body">
                     <div class="ext-stat-row"><span>Exchange Pair:</span> <strong>${escapeXml(baseCur)} → ${escapeXml(targetCur)}</strong></div>
                     <div class="ext-stat-row"><span>Exchange Rate:</span> <strong>${escapeXml(exRate)}</strong></div>
-                    <div class="ext-stat-row"><span>Converted Price:</span> <strong>${parseFloat(exRate) > 0 ? '$' + convertedPrice.toLocaleString("en-US", {minimumFractionDigits: 2}) + ' ' + escapeXml(targetCur) : '<span style="color: var(--text-muted);">Rate Unavailable</span>'}</strong></div>
-                    <div class="ext-stat-row"><span>Formula:</span> <code>${parseFloat(exRate) > 0 ? '₹' + prodPrice + ' × ' + exRate : '<span style="color: var(--text-muted);">Conversion Offline</span>'}</code></div>
+                    <div class="ext-stat-row"><span>Converted Price:</span> <strong>${parseFloat(exRate) > 0 ? '$' + convertedPrice.toLocaleString("en-US", {minimumFractionDigits: 2}) + ' ' + escapeXml(targetCur) : '<span style="color: var(--text-muted);">Estimated Cost Unavailable</span>'}</strong></div>
                     <div class="ext-stat-status">${escapeXml(curStatus)}</div>
                 </div>
             </div>
 
-            <!-- 4. WEATHER SERVICE — OPEN-METEO -->
+            <!-- 4. WEATHER SERVICE -->
             <div class="external-card card-weather">
                 <div class="ext-card-header">
                     <span class="ext-icon">🌤️</span>
                     <div>
-                        <h4 class="ext-title">WEATHER SERVICE — OPEN-METEO</h4>
-                        <span class="ext-source">Open-Meteo Public API</span>
+                        <h4 class="ext-title">Facility Weather</h4>
+                        <span class="ext-source">Local Forecast</span>
                     </div>
                 </div>
                 <div class="ext-card-body">
@@ -811,30 +861,17 @@ async function queryExternalInfo(productIdOpt) {
             </div>
 
         </div>
-
-        <!-- COLLAPSIBLE RAW SOAP XML ACCORDION -->
-        <div class="soap-raw-accordion" style="margin-top: 16px;">
-            <details>
-                <summary class="soap-raw-summary">
-                    <span>📄 Inspect Raw GetProductExternalInfoResponse SOAP XML</span>
-                    <span class="soap-raw-tag">SOAP 1.1 Envelope</span>
-                </summary>
-                <div class="soap-raw-content">
-                    <pre><code>${escapeXml(formatXmlForDisplay(result.rawXml))}</code></pre>
-                </div>
-            </details>
-        </div>
     `;
 
     container.appendChild(extWrapper);
 
-    showResult("SOAP getProductExternalInfo coordinated 4 distributed services successfully!", "success", "SOAP Coordination");
+    showResult("Product details retrieved successfully.", "success", "Product Information");
 
     // Also update SOAP response card
     renderSoapResponseCard(
         "getProductExternalInfo",
         "SUCCESS",
-        "Coordinated AWS RDS + AWS ECS Supplier + Frankfurter + Open-Meteo",
+        "Product data retrieved successfully",
         { id: prodId, name: prodName, quantity: prodQuantity, price: prodPrice, category: prodCategory },
         result.rawXml
     );
@@ -931,43 +968,42 @@ function displayProduct(product) {
     const editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.className = "btn btn-secondary btn-sm";
-    editBtn.textContent = "✏️ Load in Update";
+    editBtn.textContent = "✏️ Edit Product";
     editBtn.onclick = () => {
-        prefillUpdateForm(product);
-        switchTab("update");
+        closeModal("modal-details");
+        loadProductToUpdate(product.id);
+    };
+
+    const adjustBtn = document.createElement("button");
+    adjustBtn.type = "button";
+    adjustBtn.className = "btn btn-secondary btn-sm";
+    adjustBtn.textContent = "⚖️ Adjust Stock";
+    adjustBtn.onclick = () => {
+        closeModal("modal-details");
+        loadProductToAdjust(product.id);
     };
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
-    deleteBtn.className = "btn btn-secondary btn-sm";
-    deleteBtn.textContent = "🗑️ Load in Delete";
+    deleteBtn.className = "btn btn-danger btn-sm";
+    deleteBtn.textContent = "🗑️ Delete";
     deleteBtn.onclick = () => {
-        document.getElementById("deleteId").value = product.id;
-        switchTab("delete");
+        closeModal("modal-details");
+        loadProductToDelete(product.id);
     };
 
     const supplierBtn = document.createElement("button");
     supplierBtn.type = "button";
     supplierBtn.className = "btn btn-info btn-sm";
-    supplierBtn.textContent = "🏢 SOAP: Check Supplier";
+    supplierBtn.textContent = "🏢 Supplier Info";
     supplierBtn.onclick = () => {
         checkSupplierAvailability(product.id);
     };
 
-    const externalBtn = document.createElement("button");
-    externalBtn.type = "button";
-    externalBtn.className = "btn btn-primary btn-sm";
-    externalBtn.textContent = "🌐 SOAP: External Info";
-    externalBtn.onclick = () => {
-        document.getElementById("externalId").value = product.id;
-        switchTab("external");
-        queryExternalInfo(product.id);
-    };
-
     actions.appendChild(editBtn);
+    actions.appendChild(adjustBtn);
     actions.appendChild(deleteBtn);
     actions.appendChild(supplierBtn);
-    actions.appendChild(externalBtn);
     cardView.appendChild(actions);
 
     const supplierContainer = document.createElement("div");
@@ -1024,7 +1060,7 @@ function clearProductDetails() {
 
     const desc = document.createElement("p");
     desc.className = "empty-desc";
-    desc.textContent = "Retrieve a product using \"Get Product\" or add a new one via SOAP to inspect its details here.";
+    desc.textContent = "Select a product from the inventory table to view details.";
 
     empty.appendChild(icon);
     empty.appendChild(title);
@@ -1065,66 +1101,90 @@ function prefillUpdateForm(product) {
 }
 
 // --------------------------------------------------------------------------
-// Status Notification
+// Status Notification Toast
 // --------------------------------------------------------------------------
+let toastTimer = null;
+
 function showResult(message, type = "info", title = "") {
     const resultEl = document.getElementById("result");
     if (!resultEl) return;
 
-    resultEl.className = "result-banner";
+    if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+    }
+
+    if (message && message.startsWith("Dispatching SOAP")) {
+        return;
+    }
 
     let iconText = "ℹ️";
-    let defaultTitle = "Information";
+    let defaultTitle = "Notice";
 
     if (type === "success") {
-        resultEl.classList.add("result-success");
         iconText = "✅";
         defaultTitle = "Success";
     } else if (type === "error") {
-        resultEl.classList.add("result-error");
         iconText = "⚠️";
         defaultTitle = "Error";
-    } else {
-        resultEl.classList.add("result-info");
-        iconText = "ℹ️";
-        defaultTitle = "SOAP Notification";
+    } else if (type === "warning") {
+        iconText = "⚠️";
+        defaultTitle = "Warning";
     }
 
-    resultEl.innerHTML = "";
+    let cleanTitle = title;
+    if (!cleanTitle || cleanTitle.includes("SOAP")) {
+        cleanTitle = defaultTitle;
+    }
 
-    const iconSpan = document.createElement("span");
-    iconSpan.className = "result-icon";
-    iconSpan.textContent = iconText;
+    resultEl.className = "result-toast result-" + type;
+    resultEl.style.display = "flex";
 
-    const bodyDiv = document.createElement("div");
-    bodyDiv.className = "result-body";
+    resultEl.innerHTML = `
+        <span class="result-icon">${iconText}</span>
+        <div class="result-body">
+            <span class="result-title">${escapeXml(cleanTitle)}</span>
+            <span class="result-message">${escapeXml(message)}</span>
+        </div>
+        <button type="button" class="toast-close" onclick="closeToast()">&times;</button>
+    `;
 
-    const titleSpan = document.createElement("span");
-    titleSpan.className = "result-title";
-    titleSpan.textContent = title || defaultTitle;
+    const timeout = type === "error" ? 6000 : 4000;
+    toastTimer = setTimeout(() => {
+        closeToast();
+    }, timeout);
+}
 
-    const messageSpan = document.createElement("span");
-    messageSpan.className = "result-message";
-    messageSpan.textContent = message;
-
-    bodyDiv.appendChild(titleSpan);
-    bodyDiv.appendChild(messageSpan);
-
-    resultEl.appendChild(iconSpan);
-    resultEl.appendChild(bodyDiv);
+function closeToast() {
+    const resultEl = document.getElementById("result");
+    if (resultEl) {
+        resultEl.style.display = "none";
+    }
 }
 
 // --------------------------------------------------------------------------
-// Statistics & Session Cache
+// Statistics & Overview Dashboard Widgets
 // --------------------------------------------------------------------------
 function updateStatistics(lastOpText) {
     const totalCount = productCache.size;
     let totalQuantity = 0;
     let totalValue = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+    const lowStockItems = [];
 
     productCache.forEach(product => {
-        totalQuantity += Number(product.quantity) || 0;
-        totalValue += (Number(product.quantity) || 0) * (Number(product.price) || 0);
+        const qty = Number(product.quantity) || 0;
+        totalQuantity += qty;
+        totalValue += qty * (Number(product.price) || 0);
+
+        if (qty === 0) {
+            outOfStockCount++;
+            lowStockItems.push(product);
+        } else if (qty < LOW_STOCK_THRESHOLD) {
+            lowStockCount++;
+            lowStockItems.push(product);
+        }
     });
 
     const statCountEl = document.getElementById("statTotalProducts");
@@ -1132,6 +1192,30 @@ function updateStatistics(lastOpText) {
 
     const statQtyEl = document.getElementById("statTotalQuantity");
     if (statQtyEl) statQtyEl.textContent = totalQuantity.toLocaleString("en-IN");
+
+    const statLowEl = document.getElementById("statLowStock");
+    if (statLowEl) statLowEl.textContent = lowStockCount;
+
+    const statOutEl = document.getElementById("statOutOfStock");
+    if (statOutEl) statOutEl.textContent = outOfStockCount;
+
+    // Overview Low Stock Alert Banner
+    const alertBanner = document.getElementById("overviewLowStockAlert");
+    const alertTitle = document.getElementById("overviewAlertTitle");
+    const alertMsg = document.getElementById("overviewAlertMessage");
+    if (alertBanner) {
+        if (lowStockCount > 0 || outOfStockCount > 0) {
+            alertBanner.style.display = "flex";
+            if (alertTitle) alertTitle.textContent = "Low Stock Attention Needed:";
+            if (alertMsg) {
+                alertMsg.textContent = `${outOfStockCount} item(s) are completely out of stock and ${lowStockCount} item(s) are below safety threshold (< ${LOW_STOCK_THRESHOLD} units).`;
+            }
+        } else {
+            alertBanner.style.display = "none";
+        }
+    }
+
+    renderOverviewLowStockWidget(lowStockItems);
 
     const statValEl = document.getElementById("statTotalValue");
     if (statValEl) {
@@ -1152,6 +1236,97 @@ function updateStatistics(lastOpText) {
     }
 
     renderRecentCacheList();
+}
+
+function renderOverviewLowStockWidget(items) {
+    const container = document.getElementById("overviewLowStockContainer");
+    if (!container) return;
+
+    if (!items || items.length === 0) {
+        container.innerHTML = `
+            <div class="table-empty-state" style="padding: 24px;">
+                <div class="table-empty-icon" style="font-size: 28px;">✅</div>
+                <h4 style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">Healthy Inventory</h4>
+                <p style="font-size: 13px; color: var(--text-muted);">All items in your catalog are currently above minimum safety thresholds.</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '<div class="widget-list">';
+    items.slice(0, 5).forEach(p => {
+        const isOut = p.quantity === 0;
+        const badge = isOut
+            ? '<span class="stock-badge badge-out-of-stock">Out of Stock</span>'
+            : `<span class="stock-badge badge-low-stock">${p.quantity} units</span>`;
+
+        html += `
+            <div class="widget-item">
+                <div class="widget-item-left">
+                    <div>
+                        <div class="widget-item-title">${escapeXml(p.name)}</div>
+                        <div class="widget-item-subtitle">ID #${p.id} • ${escapeXml(p.category)}</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    ${badge}
+                    <button type="button" class="table-action-btn" onclick="loadProductToAdjust(${p.id})">
+                        ⚖️ Adjust
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderOverviewRecentActivityWidget(movements) {
+    const container = document.getElementById("overviewRecentActivityContainer");
+    if (!container) return;
+
+    if (!movements || movements.length === 0) {
+        container.innerHTML = `
+            <div class="table-empty-state" style="padding: 24px;">
+                <div class="table-empty-icon" style="font-size: 28px;">📋</div>
+                <h4 style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">No Recent Movements</h4>
+                <p style="font-size: 13px; color: var(--text-muted);">Stock transactions will appear here as inventory changes occur.</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '<div class="widget-list">';
+    movements.slice(0, 5).forEach(m => {
+        let typeLabel = "Adjusted";
+        let typeBadgeClass = "badge-stock-adjust";
+        if (m.movementType === "STOCK_IN") {
+            typeLabel = "Stock Added";
+            typeBadgeClass = "badge-stock-in";
+        } else if (m.movementType === "STOCK_OUT") {
+            typeLabel = m.reference === "DELETE_PRODUCT" ? "Product Deleted" : "Stock Removed";
+            typeBadgeClass = "badge-stock-out";
+        }
+
+        const changeSign = m.quantityChange > 0 ? "+" + m.quantityChange : "" + m.quantityChange;
+
+        html += `
+            <div class="widget-item">
+                <div class="widget-item-left">
+                    <div>
+                        <div class="widget-item-title">${escapeXml(m.productName || 'Product #' + m.productId)}</div>
+                        <div class="widget-item-subtitle">${m.reason ? escapeXml(m.reason) : typeLabel}</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="badge-movement ${typeBadgeClass}">${typeLabel}</span>
+                    <span style="font-weight: 600; font-size: 13px;">${changeSign}</span>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
 }
 
 function renderRecentCacheList() {
@@ -1219,7 +1394,7 @@ async function fetchAllProducts(isManualRefresh = false, operationContext = null
         tableContainer.innerHTML = `
             <div class="table-loading">
                 <span class="supplier-spinner">🔄</span>
-                <span>Synchronizing live inventory from backend via SOAP getAllProducts (/ws)...</span>
+                <span>Loading inventory...</span>
             </div>
         `;
     }
@@ -1229,12 +1404,12 @@ async function fetchAllProducts(isManualRefresh = false, operationContext = null
     const result = await callSoapService("getAllProducts", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "SOAP service communication failure while loading inventory.";
+        const errorMsg = result.fault || "Communication failure while loading inventory.";
         if (tableContainer) {
             tableContainer.innerHTML = `
                 <div class="table-empty-state">
                     <div class="table-empty-icon">⚠️</div>
-                    <h3 class="table-empty-title">Failed to Load Inventory via SOAP</h3>
+                    <h3 class="table-empty-title">Failed to Load Inventory</h3>
                     <p class="table-empty-desc">${escapeXml(errorMsg)}</p>
                     <button type="button" class="btn btn-secondary btn-sm" onclick="fetchAllProducts(true)">
                         🔄 Retry Connection
@@ -1242,7 +1417,7 @@ async function fetchAllProducts(isManualRefresh = false, operationContext = null
                 </div>
             `;
         }
-        showResult(errorMsg, "error", "SOAP: getAllProducts");
+        showResult(errorMsg, "error", "Inventory Load");
         if (isManualRefresh) {
             renderSoapResponseCard("getAllProducts", "FAULT", errorMsg, null, result.rawXml);
         }
@@ -1287,7 +1462,7 @@ async function fetchAllProducts(isManualRefresh = false, operationContext = null
     }
 
     // Update real persisted dashboard statistics
-    const lastOpLabel = operationContext || (isManualRefresh ? "SOAP: Refresh (" + productCache.size + ")" : "Live DB Synced");
+    const lastOpLabel = operationContext || (isManualRefresh ? "Refreshed (" + productCache.size + ")" : "Synchronized");
     updateStatistics(lastOpLabel);
 
     // Render table and smart restocking
@@ -1295,7 +1470,7 @@ async function fetchAllProducts(isManualRefresh = false, operationContext = null
     renderSmartRestocking();
 
     if (isManualRefresh) {
-        showResult(`Successfully synchronized ${productCache.size} products from database via SOAP.`, "success", "SOAP: getAllProducts");
+        showResult(`Loaded ${productCache.size} products from catalog.`, "success", "Inventory Synced");
         renderSoapResponseCard("getAllProducts", "SUCCESS", `Retrieved ${productCache.size} persisted products from database`, null, result.rawXml);
     }
 }
@@ -1339,9 +1514,9 @@ function renderInventoryTable() {
             tableContainer.innerHTML = `
                 <div class="table-empty-state">
                     <div class="table-empty-icon">📦</div>
-                    <h3 class="table-empty-title">No Products in Database</h3>
-                    <p class="table-empty-desc">Your database currently has 0 inventory items. Use the "Add Product" operation to insert your first product via SOAP.</p>
-                    <button type="button" class="btn btn-primary btn-sm" onclick="switchTab('add')">
+                    <h3 class="table-empty-title">No Products in Catalog</h3>
+                    <p class="table-empty-desc">Your inventory catalog is currently empty. Add your first product to get started.</p>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openModal('modal-add')">
                         ➕ Add First Product
                     </button>
                 </div>
@@ -1410,18 +1585,17 @@ function renderInventoryTable() {
                 <td class="col-status">${statusBadge}</td>
                 <td class="col-actions">
                     <button type="button" class="table-action-btn" title="View details" onclick="selectProductFromTable(${p.id})">
-                        🔍 Inspect
+                        Details
                     </button>
-                    <button type="button" class="table-action-btn" title="Load into Update Form" onclick="loadProductToUpdate(${p.id})">
-                        ✏️ Edit
+                    <button type="button" class="table-action-btn" title="Edit product" onclick="loadProductToUpdate(${p.id})">
+                        Edit
                     </button>
-                    <button type="button" class="table-action-btn" title="Adjust Stock" onclick="loadProductToAdjust(${p.id})">
-                        ⚖️ Adjust
+                    <button type="button" class="table-action-btn" title="Adjust stock" onclick="loadProductToAdjust(${p.id})">
+                        Adjust
                     </button>
-                    ${(isOutOfStock || isLowStock) ? `
-                    <button type="button" class="table-action-btn" title="Smart Restocking" onclick="selectRestockCandidate(${p.id})">
-                        💡 Restock
-                    </button>` : ''}
+                    <button type="button" class="table-action-btn table-action-btn-danger" title="Delete product" onclick="loadProductToDelete(${p.id})">
+                        Delete
+                    </button>
                 </td>
             </tr>
         `;
@@ -1440,9 +1614,7 @@ function selectProductFromTable(productId) {
     if (product) {
         displayProduct(product);
         prefillUpdateForm(product);
-        showResult(`Inspecting Product #${product.id} (${product.name})`, "info", "Product Selected");
-        const detailsEl = document.getElementById("productDetails");
-        if (detailsEl) detailsEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        openModal("modal-details");
     }
 }
 
@@ -1451,8 +1623,19 @@ function loadProductToUpdate(productId) {
     if (product) {
         displayProduct(product);
         prefillUpdateForm(product);
-        switchTab("update");
+        openModal("modal-update");
     }
+}
+
+function loadProductToDelete(productId) {
+    const product = productCache.get(productId);
+    const idEl = document.getElementById("deleteId");
+    if (idEl) idEl.value = productId;
+    const nameEl = document.getElementById("deleteProductName");
+    if (nameEl && product) {
+        nameEl.textContent = `#${product.id} - ${product.name} (${product.quantity} units in stock)`;
+    }
+    openModal("modal-delete");
 }
 
 function toggleLowStockFilter() {
@@ -1472,10 +1655,7 @@ function clearInventoryFilters() {
 }
 
 function scrollToInventoryTable() {
-    const section = document.getElementById("inventoryOverviewSection");
-    if (section) {
-        section.scrollIntoView({ behavior: "smooth" });
-    }
+    navigateTo("products");
 }
 
 // --------------------------------------------------------------------------
@@ -1528,9 +1708,7 @@ function loadProductToAdjust(productId) {
         displayProduct(product);
         const idEl = document.getElementById("adjustId");
         if (idEl) idEl.value = product.id;
-        switchTab("adjust");
-        const adjustSection = document.getElementById("tab-pane-adjust");
-        if (adjustSection) adjustSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        openModal("modal-adjust");
     }
 }
 
@@ -1587,13 +1765,13 @@ async function adjustStock() {
     }
     soapPayload += `    </inv:AdjustStockRequest>`;
 
-    showResult(`Submitting stock adjustment for Product #${productId}...`, "info", "SOAP: AdjustStock");
+    showResult(`Submitting stock adjustment for Product #${productId}...`, "info", "Stock Adjustment");
 
     const result = await callSoapService("adjustStock", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "Failed to communicate with SOAP service for stock adjustment.";
-        showResult(errorMsg, "error", "SOAP: adjustStock");
+        const errorMsg = result.fault || "Failed to adjust stock. Please check your connection.";
+        showResult(errorMsg, "error", "Stock Adjustment");
         renderSoapResponseCard("adjustStock", "FAULT", errorMsg, null, result.rawXml);
         return;
     }
@@ -1606,7 +1784,8 @@ async function adjustStock() {
     const updatedQuantity = updatedQuantityStr ? parseInt(updatedQuantityStr, 10) : null;
 
     if (isSuccess) {
-        showResult(message, "success", "SOAP: adjustStock");
+        closeModal("modal-adjust");
+        showResult(message || "Stock adjusted successfully.", "success", "Stock Adjusted");
         renderSoapResponseCard("adjustStock", "SUCCESS", message, {
             id: productId,
             quantity: updatedQuantity !== null ? updatedQuantity : "Updated"
@@ -1615,7 +1794,7 @@ async function adjustStock() {
         clearAdjustForm();
 
         // Refresh all products via SOAP getAllProducts
-        await fetchAllProducts(false, `SOAP: Adjusted #${productId} -> ${updatedQuantity} units`);
+        await fetchAllProducts(false, `Adjusted #${productId} -> ${updatedQuantity} units`);
 
         // Refresh stock movements via SOAP getStockMovements
         await fetchStockMovements(false);
@@ -1626,7 +1805,7 @@ async function adjustStock() {
             displayProduct(currentProd);
         }
     } else {
-        showResult(message, "error", "SOAP: adjustStock");
+        showResult(message, "error", "Adjustment Failed");
         renderSoapResponseCard("adjustStock", "FAILED", message, { id: productId }, result.rawXml);
     }
 }
@@ -1641,7 +1820,7 @@ async function fetchStockMovements(isManualRefresh = false) {
         container.innerHTML = `
             <div class="table-loading">
                 <span class="supplier-spinner">🔄</span>
-                <span>Retrieving stock movement history from backend via SOAP getStockMovements (/ws)...</span>
+                <span>Loading stock movement history...</span>
             </div>
         `;
     }
@@ -1656,7 +1835,7 @@ async function fetchStockMovements(isManualRefresh = false) {
     const result = await callSoapService("getStockMovements", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "SOAP service communication failure while loading stock movements.";
+        const errorMsg = result.fault || "Communication failure while loading stock movements.";
         if (container) {
             container.innerHTML = `
                 <div class="table-empty-state">
@@ -1670,7 +1849,7 @@ async function fetchStockMovements(isManualRefresh = false) {
             `;
         }
         if (isManualRefresh) {
-            showResult(errorMsg, "error", "SOAP: getStockMovements");
+            showResult(errorMsg, "error", "Movement History");
             renderSoapResponseCard("getStockMovements", "FAULT", errorMsg, null, result.rawXml);
         }
         return;
@@ -1714,7 +1893,7 @@ async function fetchStockMovements(isManualRefresh = false) {
     renderStockMovementsTable(movements);
 
     if (isManualRefresh) {
-        showResult(`Retrieved ${movements.length} stock movement records from database.`, "success", "SOAP: getStockMovements");
+        showResult(`Loaded ${movements.length} stock movement records.`, "success", "Movement History");
         renderSoapResponseCard("getStockMovements", "SUCCESS", `Loaded ${movements.length} persistent movement audit records`, null, result.rawXml);
     }
 }
@@ -1748,14 +1927,14 @@ function renderStockMovementsTable(movements) {
         <table class="movements-table">
             <thead>
                 <tr>
-                    <th style="width: 155px;">Timestamp</th>
+                    <th style="width: 160px;">Date & Time</th>
                     <th>Product</th>
-                    <th style="width: 130px;">Movement Type</th>
+                    <th style="width: 140px;">Movement Type</th>
                     <th style="text-align: right; width: 90px;">Previous</th>
-                    <th style="text-align: center; width: 100px;">Change</th>
+                    <th style="text-align: center; width: 90px;">Change</th>
                     <th style="text-align: right; width: 90px;">New Qty</th>
-                    <th>Audit Reason / Note</th>
-                    <th style="width: 120px;">Reference</th>
+                    <th>Reason</th>
+                    <th style="width: 130px;">Reference</th>
                 </tr>
             </thead>
             <tbody>
@@ -1764,11 +1943,12 @@ function renderStockMovementsTable(movements) {
     movements.forEach(m => {
         let typeBadge = "";
         if (m.movementType === "STOCK_IN") {
-            typeBadge = `<span class="badge-movement badge-stock-in">⬇ STOCK IN</span>`;
+            typeBadge = `<span class="badge-movement badge-stock-in">Stock Added</span>`;
         } else if (m.movementType === "STOCK_OUT") {
-            typeBadge = `<span class="badge-movement badge-stock-out">⬆ STOCK OUT</span>`;
+            const isDelete = m.reference === "DELETE_PRODUCT";
+            typeBadge = `<span class="badge-movement badge-stock-out">${isDelete ? 'Product Deleted' : 'Stock Removed'}</span>`;
         } else if (m.movementType === "ADJUSTMENT") {
-            typeBadge = `<span class="badge-movement badge-stock-adjust">⚖ ADJUSTMENT</span>`;
+            typeBadge = `<span class="badge-movement badge-stock-adjust">Stock Adjusted</span>`;
         } else {
             typeBadge = `<span class="badge-movement">${escapeXml(m.movementType)}</span>`;
         }
@@ -1796,8 +1976,7 @@ function renderStockMovementsTable(movements) {
                         day: "numeric"
                     }) + " " + dateObj.toLocaleTimeString("en-IN", {
                         hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit"
+                        minute: "2-digit"
                     });
                 }
             }
@@ -1805,7 +1984,7 @@ function renderStockMovementsTable(movements) {
             formattedTime = m.timestamp;
         }
 
-        const displayName = m.productName ? escapeXml(m.productName) : "(Deleted / Unnamed)";
+        const displayName = m.productName ? escapeXml(m.productName) : "(Deleted)";
 
         tableHtml += `
             <tr>
@@ -1832,6 +2011,7 @@ function renderStockMovementsTable(movements) {
     `;
 
     container.innerHTML = tableHtml;
+    renderOverviewRecentActivityWidget(movements);
 }
 
 let movementFilterTimeout = null;
@@ -1858,10 +2038,7 @@ function clearMovementFilter() {
 }
 
 function scrollToStockActivity() {
-    const section = document.getElementById("stockActivitySection");
-    if (section) {
-        section.scrollIntoView({ behavior: "smooth" });
-    }
+    navigateTo("activity");
 }
 
 // --------------------------------------------------------------------------
@@ -1962,10 +2139,10 @@ function renderSmartRestocking() {
                     <th>Product</th>
                     <th style="width: 100px;">Category</th>
                     <th style="text-align: right; width: 80px;">Stock</th>
-                    <th style="width: 95px;">Urgency</th>
+                    <th style="width: 120px;">Urgency</th>
                     <th style="text-align: center; width: 110px;">Suggested Qty</th>
                     <th>Recommendation Reason</th>
-                    <th style="text-align: right; width: 140px;">Action</th>
+                    <th style="text-align: right; width: 150px;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -1974,11 +2151,11 @@ function renderSmartRestocking() {
     candidates.forEach(c => {
         const isSelected = c.id === currentRestockSelectedProductId;
         const urgencyBadge = c.urgency === "CRITICAL"
-            ? `<span class="urgency-badge badge-urgency-critical">🚨 CRITICAL</span>`
-            : `<span class="urgency-badge badge-urgency-high">⚠️ HIGH</span>`;
+            ? `<span class="urgency-badge badge-urgency-critical">Critical Stock</span>`
+            : `<span class="urgency-badge badge-urgency-high">Restock Recommended</span>`;
 
         const weatherChip = (currentWeatherReport && currentWeatherReport.hasAdverseWeather && c.quantity === 0)
-            ? `<span class="badge-weather-warning" title="Adverse weather at distribution hub may compound stockout replenishment duration">🌦️ Weather Risk</span>`
+            ? `<span class="badge-weather-warning" title="Adverse weather at distribution hub may affect replenishment">🌦️ Weather Advisory</span>`
             : '';
 
         html += `
@@ -1989,10 +2166,10 @@ function renderSmartRestocking() {
                 <td style="text-align: right; font-weight: 700; color: ${c.quantity === 0 ? 'var(--danger)' : 'var(--warning)'};">${c.quantity}</td>
                 <td>${urgencyBadge}</td>
                 <td style="text-align: center;"><span class="suggested-qty-pill">+${c.suggested}</span></td>
-                <td style="font-size: 12px; color: var(--text-secondary); max-width: 220px;" title="${escapeXml(c.reason)}">${escapeXml(c.reason)}</td>
+                <td style="font-size: 13px; color: var(--text-secondary); max-width: 240px;" title="${escapeXml(c.reason)}">${escapeXml(c.reason)}</td>
                 <td style="text-align: right;">
                     <button type="button" class="btn btn-secondary btn-sm" onclick="selectRestockCandidate(${c.id})">
-                        🔍 Inspect Supplier
+                        🔍 Supplier Options
                     </button>
                 </td>
             </tr>
@@ -2023,6 +2200,7 @@ async function selectRestockCandidate(productId) {
     const product = productCache.get(productId);
     if (!product) return;
 
+    navigateTo("restocking");
     currentRestockSelectedProductId = productId;
 
     // Highlight row in candidate table
@@ -2039,7 +2217,7 @@ async function selectRestockCandidate(productId) {
         card.innerHTML = `
             <div class="table-loading">
                 <span class="supplier-spinner">🔄</span>
-                <span>Querying Supplier Service via SOAP checkSupplierAvailability for Product #${productId}...</span>
+                <span>Checking supplier availability for Product #${productId}...</span>
             </div>
         `;
     }
@@ -2054,7 +2232,7 @@ async function selectRestockCandidate(productId) {
     const result = await callSoapService("checkSupplierAvailability", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "Failed to contact Supplier Service via SOAP (/ws). Ensure Supplier Service is running on port 8081.";
+        const errorMsg = result.fault || "Supplier information is temporarily unavailable.";
         if (card) {
             card.innerHTML = `
                 <div class="analysis-card-header">
@@ -2065,10 +2243,10 @@ async function selectRestockCandidate(productId) {
                 </div>
                 <div class="table-empty-state" style="padding: 24px;">
                     <div class="table-empty-icon">⚠️</div>
-                    <h3 class="table-empty-title">Supplier Data Unavailable</h3>
+                    <h3 class="table-empty-title">Supplier Information Unavailable</h3>
                     <p class="table-empty-desc">${escapeXml(errorMsg)}</p>
                     <button type="button" class="btn btn-secondary btn-sm" onclick="selectRestockCandidate(${productId})">
-                        🔄 Retry Supplier Query
+                        🔄 Retry Query
                     </button>
                 </div>
             `;
@@ -2077,7 +2255,7 @@ async function selectRestockCandidate(productId) {
     }
 
     const responseNode = getXmlNode(result.xmlDoc, "CheckSupplierAvailabilityResponse");
-    const supplierName = getXmlValue(responseNode, "supplierName") || "Unknown Supplier";
+    const supplierName = getXmlValue(responseNode, "supplierName") || "Supplier";
     const availableQty = parseInt(getXmlValue(responseNode, "availableQuantity") || "0", 10);
     const supplierPrice = parseFloat(getXmlValue(responseNode, "supplierPrice") || "0.0");
     const available = getXmlValue(responseNode, "available").toLowerCase() === "true";
@@ -2088,11 +2266,11 @@ async function selectRestockCandidate(productId) {
 
     let fulfillBadge = "";
     if (canFulfill) {
-        fulfillBadge = `<span class="fulfill-badge fulfill-full">✔ Full Fulfillment Possible (${availableQty} in stock)</span>`;
+        fulfillBadge = `<span class="fulfill-badge fulfill-full">✔ Supplier Available (${availableQty} units available)</span>`;
     } else if (partialFulfill) {
-        fulfillBadge = `<span class="fulfill-badge fulfill-partial">⚠️ Partial Fulfillment (${availableQty} available / ${suggested - availableQty} short)</span>`;
+        fulfillBadge = `<span class="fulfill-badge fulfill-partial">⚠️ Partial Supplier Stock (${availableQty} available / ${suggested - availableQty} short)</span>`;
     } else {
-        fulfillBadge = `<span class="fulfill-badge fulfill-none">✖ Insufficient Stock (0 available)</span>`;
+        fulfillBadge = `<span class="fulfill-badge fulfill-none">✖ Supplier Information Unavailable</span>`;
     }
 
     const totalCost = (suggested * supplierPrice);
@@ -2110,7 +2288,7 @@ async function selectRestockCandidate(productId) {
             </div>
         </div>
 
-        <!-- Supplier Availability & Commercial Quote -->
+        <!-- Supplier Availability & Quote -->
         <div class="supplier-quote-box">
             <div class="supplier-quote-header">
                 <span class="supplier-quote-title">🏢 ${escapeXml(supplierName)}</span>
@@ -2119,11 +2297,11 @@ async function selectRestockCandidate(productId) {
 
             <div class="quote-row">
                 <span>Supplier Availability:</span>
-                <strong>${available ? `${availableQty} units available` : 'Inactive / Unavailable'}</strong>
+                <strong>${available ? `${availableQty} units available` : 'Supplier Information Unavailable'}</strong>
             </div>
             <div class="quote-row">
-                <span>Supplier Unit Wholesale Price:</span>
-                <strong style="color: var(--primary);">${available && supplierPrice > 0 ? '₹' + supplierPrice.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '<span style="color: var(--text-muted);">N/A (Supplier Unavailable)</span>'}</strong>
+                <span>Wholesale Unit Price:</span>
+                <strong style="color: var(--primary);">${available && supplierPrice > 0 ? '₹' + supplierPrice.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '<span style="color: var(--text-muted);">Estimated Cost Unavailable</span>'}</strong>
             </div>
             <div class="quote-row">
                 <span>Catalog Retail Price (INR):</span>
@@ -2131,21 +2309,20 @@ async function selectRestockCandidate(productId) {
             </div>
             ${unitSavings > 0 ? `
             <div class="quote-row" style="color: var(--success);">
-                <span>Estimated Unit Margin / Savings:</span>
+                <span>Estimated Margin / Savings:</span>
                 <strong>₹${unitSavings.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${((unitSavings / product.price) * 100).toFixed(1)}%)</strong>
             </div>
             ` : ''}
             <div class="quote-row quote-row-total">
                 <span>Estimated Total Procurement Cost (+${suggested} units):</span>
-                <span>${available && supplierPrice > 0 ? '₹' + totalCost.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '<span style="color: var(--text-muted);">Unavailable (Supplier Inactive)</span>'}</span>
+                <span>${available && supplierPrice > 0 ? '₹' + totalCost.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '<span style="color: var(--text-muted);">Estimated Cost Unavailable</span>'}</span>
             </div>
         </div>
 
         <!-- Currency Conversion Section (Base Currency: INR) -->
         <div class="currency-conversion-box">
             <div class="currency-conversion-header">
-                <span>💱 Currency Conversion Context (Base: INR)</span>
-                <span style="font-size: 11px; color: var(--text-muted);">Source: Frankfurter Live API</span>
+                <span>💱 Currency Conversion (Base: INR)</span>
             </div>
             <p style="margin-bottom: 8px; color: var(--text-secondary);">
                 Wholesale quotes and catalog prices are established in Indian Rupees (INR). You can convert this procurement cost to international currencies:
@@ -2164,13 +2341,13 @@ async function selectRestockCandidate(productId) {
             </div>
         </div>
 
-        <!-- Simulated Restock Receipt -->
+        <!-- Record Received Stock -->
         <div class="simulated-receipt-box">
             <div class="simulated-receipt-title">
-                <span>📥 Confirm Simulated Stock Receipt</span>
+                <span>📥 Record Received Stock</span>
             </div>
-            <p style="font-size: 12px; color: #065f46; margin-bottom: 10px;">
-                Confirm receipt of replenishment units. This updates database stock via SOAP <code>AdjustStock</code> and persists an audited movement record in history.
+            <p style="font-size: 13px; color: #065f46; margin-bottom: 10px;">
+                Record the arrival of replenishment units into warehouse inventory. This updates the catalog balance and logs an audited movement record.
             </p>
 
             <div class="receipt-input-grid">
@@ -2189,7 +2366,7 @@ async function selectRestockCandidate(productId) {
             </div>
 
             <button type="button" class="btn btn-primary btn-sm" id="btnConfirmReceipt" onclick="confirmSimulatedReceipt(${productId}, '${escapeXml(supplierName)}')">
-                <span>📥 Confirm Simulated Receipt & Update Inventory</span>
+                <span>📥 Record Received Stock</span>
             </button>
         </div>
     `;
@@ -2203,8 +2380,13 @@ async function convertRestockCurrency(amount, baseCurrency, targetCurrency) {
     const resultEl = document.getElementById("restockCurrencyResult");
     if (!resultEl) return;
 
+    if (!amount || amount <= 0) {
+        resultEl.innerHTML = `<span style="color:var(--text-muted);">Estimated Cost Unavailable</span>`;
+        return;
+    }
+
     if (baseCurrency.toUpperCase() === targetCurrency.toUpperCase()) {
-        resultEl.innerHTML = `₹${amount.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})} INR (Same currency, rate: 1.0)`;
+        resultEl.innerHTML = `₹${amount.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})} INR (Rate: 1.0)`;
         return;
     }
 
@@ -2212,18 +2394,18 @@ async function convertRestockCurrency(amount, baseCurrency, targetCurrency) {
 
     try {
         const res = await fetch(`https://api.frankfurter.dev/v1/latest?from=${baseCurrency}&to=${targetCurrency}`);
-        if (!res.ok) throw new Error("API rate unavailable");
+        if (!res.ok) throw new Error("Exchange rate service unavailable");
         const data = await res.json();
         if (data && data.rates && data.rates[targetCurrency]) {
             const rate = data.rates[targetCurrency];
             const converted = (amount * rate).toFixed(2);
             const symbol = targetCurrency === "USD" ? "$" : (targetCurrency === "EUR" ? "€" : "");
-            resultEl.innerHTML = `<strong>${symbol}${Number(converted).toLocaleString()} ${targetCurrency}</strong> (Rate: ${rate.toFixed(4)}, Date: ${data.date || 'latest'})`;
+            resultEl.innerHTML = `<strong>${symbol}${Number(converted).toLocaleString()} ${targetCurrency}</strong> (Rate: ${rate.toFixed(4)})`;
         } else {
-            resultEl.innerHTML = `<span style="color:var(--danger);">Rate unavailable</span>`;
+            resultEl.innerHTML = `<span style="color:var(--danger);">Estimated Cost Unavailable</span>`;
         }
     } catch (err) {
-        resultEl.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">Frankfurter conversion unavailable (${err.message})</span>`;
+        resultEl.innerHTML = `<span style="color:var(--text-muted); font-size:12px;">Currency conversion unavailable</span>`;
     }
 }
 
@@ -2245,10 +2427,10 @@ async function confirmSimulatedReceipt(productId, supplierName) {
     // Disable button to prevent double submission
     if (confirmBtn) {
         confirmBtn.disabled = true;
-        confirmBtn.innerHTML = `<span>🔄 Processing SOAP Stock Adjustment...</span>`;
+        confirmBtn.innerHTML = `<span>🔄 Recording Stock Receipt...</span>`;
     }
 
-    showResult(`Submitting simulated restock receipt for #${productId} (+${qtyVal} units)...`, "info", "SOAP: AdjustStock");
+    showResult(`Recording restock receipt for #${productId} (+${qtyVal} units)...`, "info", "Stock Receipt");
 
     const soapPayload = `<inv:AdjustStockRequest>
         <inv:productId>${productId}</inv:productId>
@@ -2260,12 +2442,12 @@ async function confirmSimulatedReceipt(productId, supplierName) {
     const result = await callSoapService("adjustStock", soapPayload);
 
     if (!result.ok || !result.xmlDoc) {
-        const errorMsg = result.fault || "Failed to confirm stock receipt via SOAP service.";
-        showResult(errorMsg, "error", "SOAP: AdjustStock");
+        const errorMsg = result.fault || "Failed to record stock receipt.";
+        showResult(errorMsg, "error", "Stock Receipt");
         renderSoapResponseCard("adjustStock", "FAULT", errorMsg, null, result.rawXml);
         if (confirmBtn) {
             confirmBtn.disabled = false;
-            confirmBtn.innerHTML = `<span>📥 Confirm Simulated Receipt & Update Inventory</span>`;
+            confirmBtn.innerHTML = `<span>📥 Record Received Stock</span>`;
         }
         return;
     }
@@ -2273,19 +2455,19 @@ async function confirmSimulatedReceipt(productId, supplierName) {
     const responseNode = getXmlNode(result.xmlDoc, "AdjustStockResponse");
     const successStr = getXmlValue(responseNode, "success");
     const isSuccess = successStr.toLowerCase() === "true";
-    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Restock receipt confirmed successfully" : "Failed to record restock receipt");
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Stock receipt recorded successfully" : "Failed to record stock receipt");
     const updatedQuantityStr = getXmlValue(responseNode, "updatedQuantity");
     const updatedQuantity = updatedQuantityStr ? parseInt(updatedQuantityStr, 10) : null;
 
     if (isSuccess) {
-        showResult(`Restock receipt recorded: +${qtyVal} units added to Product #${productId} (new balance: ${updatedQuantity} units).`, "success", "SOAP: AdjustStock");
+        showResult(`Restock receipt recorded: +${qtyVal} units added to Product #${productId} (new balance: ${updatedQuantity} units).`, "success", "Stock Received");
         renderSoapResponseCard("adjustStock", "SUCCESS", message, {
             id: productId,
             quantity: updatedQuantity !== null ? updatedQuantity : "Updated"
         }, result.rawXml);
 
         // 1. Refresh inventory via getAllProducts
-        await fetchAllProducts(false, `SOAP: Restock Receipt #${productId} (+${qtyVal})`);
+        await fetchAllProducts(false, `Restock Receipt #${productId} (+${qtyVal})`);
 
         // 2. Refresh stock movement history via getStockMovements
         await fetchStockMovements(false);
@@ -2299,20 +2481,17 @@ async function confirmSimulatedReceipt(productId, supplierName) {
             displayProduct(updatedProd);
         }
     } else {
-        showResult(message, "error", "SOAP: AdjustStock");
+        showResult(message, "error", "Stock Receipt");
         renderSoapResponseCard("adjustStock", "FAILED", message, { id: productId }, result.rawXml);
         if (confirmBtn) {
             confirmBtn.disabled = false;
-            confirmBtn.innerHTML = `<span>📥 Confirm Simulated Receipt & Update Inventory</span>`;
+            confirmBtn.innerHTML = `<span>📥 Record Received Stock</span>`;
         }
     }
 }
 
 function scrollToSmartRestocking() {
-    const section = document.getElementById("smartRestockingSection");
-    if (section) {
-        section.scrollIntoView({ behavior: "smooth" });
-    }
+    navigateTo("restocking");
 }
 
 // ==========================================================================
@@ -2336,7 +2515,7 @@ async function fetchWeatherAdvisories(forceRefresh = false) {
         container.innerHTML = `
             <div class="table-loading">
                 <span class="supplier-spinner">🔄</span>
-                <span>Querying Open-Meteo forecast telemetry and evaluating operational rules via SOAP GetWeatherAdvisories...</span>
+                <span>Loading operational weather forecast...</span>
             </div>
         `;
     }
@@ -2349,14 +2528,14 @@ async function fetchWeatherAdvisories(forceRefresh = false) {
         const result = await callSoapService("getWeatherAdvisories", soapPayload);
 
         if (!result.ok || !result.xmlDoc) {
-            const errorMsg = result.fault || "Unable to retrieve meteorological advisories via SOAP /ws.";
+            const errorMsg = result.fault || "Unable to retrieve weather advisories.";
             renderWeatherError(errorMsg);
             return;
         }
 
         const respNode = getXmlNode(result.xmlDoc, "GetWeatherAdvisoriesResponse");
         if (!respNode) {
-            renderWeatherError("GetWeatherAdvisoriesResponse node missing in SOAP response.");
+            renderWeatherError("Weather response was invalid or empty.");
             return;
         }
 
@@ -2436,8 +2615,8 @@ function renderWeatherRiskSection(report) {
     const hubCoords = document.getElementById("weatherHubCoords");
     const hubRetrieval = document.getElementById("weatherRetrievalTime");
     if (hubName) hubName.textContent = report.location;
-    if (hubCoords) hubCoords.textContent = `${report.latitude.toFixed(4)}° N, ${report.longitude.toFixed(4)}° E • Operational Hub`;
-    if (hubRetrieval) hubRetrieval.textContent = `Telemetry Updated: ${report.retrievalTime}`;
+    if (hubCoords) hubCoords.textContent = "Primary Logistics Hub • Mumbai";
+    if (hubRetrieval) hubRetrieval.textContent = `Last Updated: ${report.retrievalTime}`;
 
     // 2. Current Conditions
     const currentTemp = document.getElementById("weatherCurrentTemp");
@@ -2480,24 +2659,24 @@ function renderWeatherRiskSection(report) {
         if (highCount > 0) {
             riskLevel.textContent = "HIGH RISK ALERT";
             riskLevel.classList.add("level-high");
-            riskSummary.textContent = `${highCount} high-severity risk condition(s) detected across ${report.forecastHorizonHours}h forecast window.`;
+            riskSummary.textContent = `${highCount} weather alert(s) detected across ${report.forecastHorizonHours}h forecast window. Replenishment may be affected.`;
             riskIcon.textContent = "🚨";
         } else if (warnCount > 0) {
             riskLevel.textContent = "MODERATE CAUTION";
             riskLevel.classList.add("level-warning");
-            riskSummary.textContent = `${warnCount} operational weather warning(s) active across ${report.forecastHorizonHours}h horizon.`;
+            riskSummary.textContent = `${warnCount} weather advisory(ies) active across ${report.forecastHorizonHours}h forecast window.`;
             riskIcon.textContent = "⚠️";
         } else {
             riskLevel.textContent = "NORMAL OPERATIONS";
             riskLevel.classList.add("level-safe");
-            riskSummary.textContent = `No adverse weather conditions detected in next ${report.forecastHorizonHours} hours. Standard staging applies.`;
+            riskSummary.textContent = `No adverse weather conditions detected in next ${report.forecastHorizonHours} hours. Standard operations apply.`;
             riskIcon.textContent = "🛡️";
         }
     }
 
     if (cacheIndicator) {
         const isOffline = report.status.toLowerCase().includes("unavailable");
-        cacheIndicator.textContent = isOffline ? "Service: Degraded / Fallback Mode" : "Status: Active Forecast Telemetry";
+        cacheIndicator.textContent = isOffline ? "Status: Degraded" : "Status: Operational";
         cacheIndicator.style.color = isOffline ? "var(--danger)" : "var(--text-muted)";
     }
 
@@ -2513,9 +2692,9 @@ function renderWeatherRiskSection(report) {
                         <span class="advisory-severity-badge advisory-badge-info">ℹ️ INFORMATIONAL</span>
                         <h3 class="advisory-title">No Active Weather Advisories</h3>
                     </div>
-                    <span class="advisory-time-pill">Horizon: Next ${report.forecastHorizonHours} Hours</span>
+                    <span class="advisory-time-pill">Forecast Window: Next ${report.forecastHorizonHours} Hours</span>
                 </div>
-                <p class="advisory-desc">Meteorological model reports clear parameters within standard operational limits. No special staging protocols required.</p>
+                <p class="advisory-desc">Forecast reports standard conditions. No operational disruptions expected.</p>
                 <div class="advisory-action-box">
                     <div class="advisory-action-header">✔ Recommended Action</div>
                     <div class="advisory-action-text">Standard warehousing, inventory replenishment, and dock receiving operations remain in effect.</div>
@@ -2549,20 +2728,20 @@ function renderWeatherRiskSection(report) {
                         <span class="advisory-severity-badge ${badgeClass}">${badgeIcon} ${escapeXml(adv.severity)}</span>
                         <h3 class="advisory-title">${escapeXml(adv.title)}</h3>
                     </div>
-                    <span class="advisory-time-pill">⏰ Period: ${escapeXml(adv.expectedTime)}</span>
+                    <span class="advisory-time-pill">⏰ Window: ${escapeXml(adv.expectedTime)}</span>
                 </div>
 
                 <p class="advisory-desc">${escapeXml(adv.description)}</p>
 
                 ${adv.triggerConditions ? `
                 <div class="advisory-metrics-box">
-                    <span class="advisory-metrics-label">Trigger Telemetry:</span>
+                    <span class="advisory-metrics-label">Observed Condition:</span>
                     <span class="advisory-metrics-val">${escapeXml(adv.triggerConditions)}</span>
                 </div>
                 ` : ''}
 
                 <div class="advisory-action-box">
-                    <div class="advisory-action-header">📋 Recommended Operational Action</div>
+                    <div class="advisory-action-header">📋 Recommended Action</div>
                     <div class="advisory-action-text">${escapeXml(adv.recommendedAction)}</div>
                 </div>
 
@@ -2583,10 +2762,10 @@ function renderWeatherError(errorMessage) {
     container.innerHTML = `
         <div class="weather-error-state">
             <div class="weather-state-icon">⚠️</div>
-            <h3>Weather Forecast Service Temporarily Unavailable</h3>
-            <p>Unable to retrieve forecast telemetry from Open-Meteo API (${escapeXml(errorMessage)}). Operational weather risk cannot currently be refreshed.</p>
+            <h3>Weather Information Temporarily Unavailable</h3>
+            <p>Weather information is temporarily unavailable. Standard warehouse operations remain unaffected.</p>
             <button type="button" class="btn btn-secondary btn-sm" onclick="fetchWeatherAdvisories(true)">
-                🔄 Retry Meteorological Connection
+                🔄 Retry Weather Update
             </button>
         </div>
     `;
@@ -2598,9 +2777,9 @@ function renderWeatherError(errorMessage) {
         riskLevel.textContent = "SERVICE UNAVAILABLE";
         riskLevel.className = "weather-risk-level level-warning";
     }
-    if (riskSummary) riskSummary.textContent = "Live forecast connection unavailable. Existing inventory workflows remain operational.";
+    if (riskSummary) riskSummary.textContent = "Weather information is temporarily unavailable. Existing inventory workflows remain operational.";
     if (cacheIndicator) {
-        cacheIndicator.textContent = "Status: API Connection Offline";
+        cacheIndicator.textContent = "Status: Offline";
         cacheIndicator.style.color = "var(--danger)";
     }
 }
@@ -2610,8 +2789,5 @@ function onWeatherHorizonChange() {
 }
 
 function scrollToWeatherRisk() {
-    const section = document.getElementById("weatherRiskSection");
-    if (section) {
-        section.scrollIntoView({ behavior: "smooth" });
-    }
+    navigateTo("operations");
 }

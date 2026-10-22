@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventory Management System</title>
+    <title>InventoryPro — Inventory & Warehouse Management</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -20,84 +20,41 @@
             <div class="brand-icon">📦</div>
             <div class="brand-info">
                 <span class="brand-title">InventoryPro</span>
-                <span class="brand-subtitle">SOAP + REST Service</span>
+                <span class="brand-subtitle">Warehouse Management</span>
             </div>
         </div>
 
         <nav class="sidebar-nav">
-            <div class="nav-section-label">OPERATIONS</div>
-            <button class="nav-item active" id="nav-add" onclick="switchTab('add')">
-                <span class="nav-icon">➕</span>
-                <span>Add Product</span>
+            <button class="nav-item active" id="nav-overview" onclick="navigateTo('overview')">
+                <span class="nav-icon">📊</span>
+                <span>Overview</span>
             </button>
-            <button class="nav-item" id="nav-get" onclick="switchTab('get')">
-                <span class="nav-icon">🔍</span>
-                <span>Get Product</span>
+            <button class="nav-item" id="nav-products" onclick="navigateTo('products')">
+                <span class="nav-icon">📦</span>
+                <span>Products</span>
             </button>
-            <button class="nav-item" id="nav-update" onclick="switchTab('update')">
-                <span class="nav-icon">✏️</span>
-                <span>Update Product</span>
-            </button>
-            <button class="nav-item" id="nav-delete" onclick="switchTab('delete')">
-                <span class="nav-icon">🗑️</span>
-                <span>Delete Product</span>
-            </button>
-            <button class="nav-item" id="nav-adjust" onclick="switchTab('adjust')">
-                <span class="nav-icon">⚖️</span>
-                <span>Adjust Stock</span>
-            </button>
-            <button class="nav-item" id="nav-external" onclick="switchTab('external')">
-                <span class="nav-icon">🌐</span>
-                <span>External Info</span>
-            </button>
-            <button class="nav-item" id="nav-table" onclick="scrollToInventoryTable()">
+            <button class="nav-item" id="nav-activity" onclick="navigateTo('activity')">
                 <span class="nav-icon">📋</span>
-                <span>Inventory Table</span>
-            </button>
-            <button class="nav-item" id="nav-activity" onclick="scrollToStockActivity()">
-                <span class="nav-icon">📜</span>
                 <span>Stock Activity</span>
             </button>
-            <button class="nav-item" id="nav-restock" onclick="scrollToSmartRestocking()">
-                <span class="nav-icon">💡</span>
-                <span>Smart Restocking</span>
+            <button class="nav-item" id="nav-restocking" onclick="navigateTo('restocking')">
+                <span class="nav-icon">🔄</span>
+                <span>Restocking</span>
             </button>
-            <button class="nav-item" id="nav-weather" onclick="scrollToWeatherRisk()">
-                <span class="nav-icon">🌦️</span>
-                <span>Weather & Risk</span>
+            <button class="nav-item" id="nav-operations" onclick="navigateTo('operations')">
+                <span class="nav-icon">🚚</span>
+                <span>Operations</span>
             </button>
         </nav>
 
         <div class="sidebar-footer">
-            <div class="service-card">
-                <div class="service-header">
-                    <span class="status-indicator"></span>
-                    <span class="service-name">Service Status</span>
-                </div>
-                <div class="service-details">
-                    <div class="service-row">
-                        <span>Protocol:</span> <strong>SOAP 1.1</strong>
-                    </div>
-                    <div class="service-row">
-                        <span>SOAP Endpoint:</span> <code>/ws</code>
-                    </div>
-                    <div class="service-row">
-                        <span>Deployment:</span> <strong>AWS ECS Fargate</strong>
-                    </div>
-                    <div class="service-row">
-                        <span>Database:</span> <strong>AWS RDS PG</strong>
-                    </div>
-                    <div class="service-row">
-                        <span>Supplier:</span> <code>AWS ECS / REST</code>
-                    </div>
-                    <div class="service-row">
-                        <span>Public APIs:</span> <code>Frankfurter + OpenMeteo</code>
-                    </div>
-                </div>
-                <a href="/ws/inventory.wsdl" target="_blank" class="wsdl-link">
-                    📄 View WSDL Contract (/ws/inventory.wsdl) ↗
-                </a>
+            <div class="system-status-pill">
+                <span class="status-dot"></span>
+                <span>System Operational</span>
             </div>
+            <a href="/ws/inventory.wsdl" target="_blank" class="wsdl-link" title="Open formal service contract definition">
+                <span>📄 Service Contract (WSDL)</span> ↗
+            </a>
         </div>
     </aside>
 
@@ -107,594 +64,544 @@
         <!-- TOP HEADER -->
         <header class="top-header">
             <div class="header-left">
-                <div class="header-icon">📦</div>
-                <div>
-                    <h1 class="header-title">Inventory Management System</h1>
-                    <p class="header-subtitle">SOAP Web Service (Contract-First) • Distributed on AWS ECS Fargate</p>
-                </div>
+                <h1 class="header-title" id="pageTitle">Inventory Overview</h1>
+                <p class="header-subtitle" id="pageSubtitle">Live summary of catalog stock, low-inventory alerts, and recent movements.</p>
             </div>
-            <div class="header-badges">
-                <span class="badge badge-success">
-                    <span class="badge-dot"></span> Online
-                </span>
-                <span class="badge badge-primary">
-                    <span>📡 Communication:</span> <strong>SOAP (/ws)</strong>
-                </span>
-                <span class="badge badge-neutral">
-                    <span>☁️ AWS:</span> <strong>ECS + RDS</strong>
-                </span>
-                <span class="badge badge-neutral">Java 21</span>
+            <div class="header-right">
+                <button type="button" class="btn btn-primary" onclick="openModal('modal-add')">
+                    <span>➕ Add Product</span>
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="refreshCurrentView()">
+                    <span>🔄 Refresh</span>
+                </button>
             </div>
         </header>
 
-        <!-- STATISTICS CARDS -->
-        <section class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon stat-icon-blue">📦</div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Products</div>
-                    <div class="stat-value" id="statTotalProducts">0</div>
-                    <div class="stat-hint">Persisted database records</div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-icon stat-icon-purple">🔢</div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Quantity</div>
-                    <div class="stat-value" id="statTotalQuantity">0</div>
-                    <div class="stat-hint">Units in inventory</div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-icon stat-icon-green">💰</div>
-                <div class="stat-content">
-                    <div class="stat-label">Inventory Value</div>
-                    <div class="stat-value" id="statTotalValue">₹0.00</div>
-                    <div class="stat-hint">Calculated worth</div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-icon stat-icon-amber">⚡</div>
-                <div class="stat-content">
-                    <div class="stat-label">Last Operation</div>
-                    <div class="stat-value stat-value-sm" id="statLastOp">Ready</div>
-                    <div class="stat-hint" id="statLastOpTime">System initialized</div>
-                </div>
-            </div>
-        </section>
-
-        <!-- STATUS NOTIFICATION / RESULT BOX -->
-        <div id="result" class="result-banner result-info">
+        <!-- TOAST / NOTIFICATION BANNER -->
+        <div id="result" class="result-toast result-info" style="display: none;">
             <span class="result-icon">ℹ️</span>
             <div class="result-body">
-                <span class="result-title">System Ready</span>
-                <span class="result-message">No operation performed yet.</span>
+                <span class="result-title">Notice</span>
+                <span class="result-message">System ready.</span>
             </div>
+            <button type="button" class="toast-close" onclick="closeToast()">&times;</button>
         </div>
 
-        <!-- WORKSPACE GRID (Operations + Product Details) -->
-        <div class="workspace-grid">
+        <!-- ============================================================= -->
+        <!-- VIEW 1: OVERVIEW DASHBOARD                                    -->
+        <!-- ============================================================= -->
+        <section id="view-overview" class="view-section active">
 
-            <!-- LEFT: OPERATIONS CARD WITH TABS -->
-            <section class="card operations-card">
-                <div class="tab-header">
-                    <button class="tab-btn active" id="tab-btn-add" onclick="switchTab('add')">
-                        <span>➕ Add</span>
-                    </button>
-                    <button class="tab-btn" id="tab-btn-get" onclick="switchTab('get')">
-                        <span>🔍 Get</span>
-                    </button>
-                    <button class="tab-btn" id="tab-btn-update" onclick="switchTab('update')">
-                        <span>✏️ Update</span>
-                    </button>
-                    <button class="tab-btn" id="tab-btn-delete" onclick="switchTab('delete')">
-                        <span>🗑️ Delete</span>
-                    </button>
-                    <button class="tab-btn" id="tab-btn-adjust" onclick="switchTab('adjust')">
-                        <span>⚖️ Adjust Stock</span>
-                    </button>
-                    <button class="tab-btn" id="tab-btn-external" onclick="switchTab('external')">
-                        <span>🌐 External Info</span>
-                    </button>
-                </div>
-
-                <!-- ADD PRODUCT PANE -->
-                <div class="tab-pane active" id="tab-pane-add">
-                    <div class="pane-intro">
-                        <h3>Add New Product</h3>
-                        <p>Insert a new inventory item into the system database.</p>
-                    </div>
-
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="addId">Product ID <span class="required">*</span></label>
-                            <input type="number" id="addId" placeholder="e.g. 101" min="1" step="1">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="addName">Product Name <span class="required">*</span></label>
-                            <input type="text" id="addName" placeholder="e.g. Mechanical Keyboard">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="addQuantity">Quantity <span class="required">*</span></label>
-                            <input type="number" id="addQuantity" placeholder="e.g. 25" min="0" step="1">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="addPrice">Price (₹) <span class="required">*</span></label>
-                            <input type="number" id="addPrice" placeholder="e.g. 3499.00" min="0" step="0.01">
-                        </div>
-
-                        <div class="form-group form-group-full">
-                            <label for="addCategory">Category <span class="required">*</span></label>
-                            <input type="text" id="addCategory" placeholder="e.g. Electronics, Peripherals, Furniture">
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-primary" onclick="addProduct()">
-                            <span>➕ Add Product</span>
-                        </button>
-                        <button type="button" class="btn btn-secondary" onclick="clearAddForm()">
-                            Clear Form
-                        </button>
+            <!-- 4 SUMMARY CARDS -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-blue">📦</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Total Products</div>
+                        <div class="stat-value" id="statTotalProducts">0</div>
+                        <div class="stat-hint">Active catalog items</div>
                     </div>
                 </div>
 
-                <!-- GET PRODUCT PANE -->
-                <div class="tab-pane" id="tab-pane-get">
-                    <div class="pane-intro">
-                        <h3>Retrieve Product</h3>
-                        <p>Search for an existing product by its unique Product ID.</p>
-                    </div>
-
-                    <div class="form-grid">
-                        <div class="form-group form-group-full">
-                            <label for="getId">Product ID <span class="required">*</span></label>
-                            <input type="number" id="getId" placeholder="Enter Product ID (e.g. 101)" min="1">
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-info" onclick="getProduct()">
-                            <span>🔍 Retrieve Product</span>
-                        </button>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-purple">🔢</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Total Units in Stock</div>
+                        <div class="stat-value" id="statTotalQuantity">0</div>
+                        <div class="stat-hint">Units across warehouse</div>
                     </div>
                 </div>
 
-                <!-- UPDATE PRODUCT PANE -->
-                <div class="tab-pane" id="tab-pane-update">
-                    <div class="pane-intro">
-                        <h3>Update Product Details</h3>
-                        <p>Modify details of an existing product in inventory.</p>
-                    </div>
-
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="updateId">Product ID <span class="required">*</span></label>
-                            <input type="number" id="updateId" placeholder="e.g. 101" min="1" step="1">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="updateName">Product Name <span class="required">*</span></label>
-                            <input type="text" id="updateName" placeholder="e.g. Mechanical Keyboard Pro">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="updateQuantity">Quantity <span class="required">*</span></label>
-                            <input type="number" id="updateQuantity" placeholder="e.g. 30" min="0" step="1">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="updatePrice">Price (₹) <span class="required">*</span></label>
-                            <input type="number" id="updatePrice" placeholder="e.g. 3999.00" min="0" step="0.01">
-                        </div>
-
-                        <div class="form-group form-group-full">
-                            <label for="updateCategory">Category <span class="required">*</span></label>
-                            <input type="text" id="updateCategory" placeholder="e.g. Electronics">
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-accent" onclick="updateProduct()">
-                            <span>✏️ Update Product</span>
-                        </button>
-                        <button type="button" class="btn btn-secondary" onclick="clearUpdateForm()">
-                            Clear Form
-                        </button>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-amber">⚠️</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Low Stock Items</div>
+                        <div class="stat-value" id="statLowStock">0</div>
+                        <div class="stat-hint">&lt; 5 units remaining</div>
                     </div>
                 </div>
 
-                <!-- DELETE PRODUCT PANE -->
-                <div class="tab-pane" id="tab-pane-delete">
-                    <div class="pane-intro">
-                        <h3>Delete Product</h3>
-                        <p>Permanently remove a product from the inventory database.</p>
-                    </div>
-
-                    <div class="warning-callout">
-                        <span class="warning-icon">⚠️</span>
-                        <span>Deleting a product removes its record immediately. Please verify the ID before proceeding.</span>
-                    </div>
-
-                    <div class="form-grid">
-                        <div class="form-group form-group-full">
-                            <label for="deleteId">Product ID <span class="required">*</span></label>
-                            <input type="number" id="deleteId" placeholder="Enter Product ID to delete (e.g. 101)" min="1">
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-danger" onclick="deleteProduct()">
-                            <span>🗑️ Delete Product</span>
-                        </button>
+                <div class="stat-card">
+                    <div class="stat-icon stat-icon-red">🚨</div>
+                    <div class="stat-content">
+                        <div class="stat-label">Out of Stock Items</div>
+                        <div class="stat-value" id="statOutOfStock">0</div>
+                        <div class="stat-hint">0 units in inventory</div>
                     </div>
                 </div>
+            </div>
 
-                <!-- ADJUST STOCK PANE -->
-                <div class="tab-pane" id="tab-pane-adjust">
-                    <div class="pane-intro">
-                        <h3>Stock Adjustment</h3>
-                        <p>Record an explicit stock modification with an audit reason via SOAP <code>AdjustStockRequest</code>.</p>
-                    </div>
-
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="adjustId">Product ID <span class="required">*</span></label>
-                            <input type="number" id="adjustId" placeholder="e.g. 101" min="1" step="1">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="adjustMode">Adjustment Mode <span class="required">*</span></label>
-                            <select id="adjustMode" class="form-select" onchange="onAdjustModeChange()">
-                                <option value="change">Relative Change (+/- delta)</option>
-                                <option value="target">Target Quantity (Set absolute stock)</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group form-group-full">
-                            <label for="adjustQuantity" id="adjustQuantityLabel">Quantity Change (e.g. +5 or -3) <span class="required">*</span></label>
-                            <input type="number" id="adjustQuantity" placeholder="e.g. 5 or -2" step="1">
-                            <span class="form-hint" id="adjustQuantityHint">Enter positive number to add stock, negative to deduct stock.</span>
-                        </div>
-
-                        <div class="form-group form-group-full">
-                            <label for="adjustReason">Adjustment Reason / Audit Note <span class="required">*</span></label>
-                            <input type="text" id="adjustReason" placeholder="e.g. Physical cycle count audit, supplier shipment arrival, transit damage">
-                        </div>
-
-                        <div class="form-group form-group-full">
-                            <label for="adjustReference">Reference / PO / Ticket # (Optional)</label>
-                            <input type="text" id="adjustReference" placeholder="e.g. AUDIT-2026-Q4, RMA-8891">
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-primary" onclick="adjustStock()">
-                            <span>⚖️ Submit Stock Adjustment</span>
-                        </button>
-                        <button type="button" class="btn btn-secondary" onclick="clearAdjustForm()">
-                            Clear Form
-                        </button>
-                    </div>
+            <!-- LOW STOCK ALERT BANNER -->
+            <div id="overviewLowStockAlert" class="alert-banner alert-warning" style="display: none;">
+                <span class="alert-icon">⚠️</span>
+                <div class="alert-content">
+                    <strong id="overviewAlertTitle">Inventory Alert</strong>
+                    <span id="overviewAlertMessage">Some products are below safe stock levels.</span>
                 </div>
+                <button type="button" class="btn btn-sm btn-outline-warning" onclick="navigateTo('restocking')">
+                    View Restocking ↗
+                </button>
+            </div>
 
-                <!-- EXTERNAL INFO PANE -->
-                <div class="tab-pane" id="tab-pane-external">
-                    <div class="pane-intro">
-                        <h3>Combined External Intelligence</h3>
-                        <p>Query aggregated data across AWS RDS Database, Supplier Service (port 8081), Frankfurter Currency API, and Open-Meteo Weather API.</p>
-                    </div>
-
-                    <div class="form-grid">
-                        <div class="form-group form-group-full">
-                            <label for="externalId">Product ID <span class="required">*</span></label>
-                            <input type="number" id="externalId" placeholder="Enter Product ID (e.g. 101)" min="1">
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn btn-primary" onclick="queryExternalInfo()">
-                            <span>🌐 Retrieve Combined External Info</span>
-                        </button>
-                    </div>
-
-                    <div id="externalInfoResult" class="external-info-result-container"></div>
-                </div>
-
-            </section>
-
-            <!-- RIGHT: PRODUCT DETAILS & CACHE -->
-            <section class="details-column">
-
-                <!-- LIVE SOAP 1.1 RESPONSE DISPLAY CARD -->
-                <div class="card soap-response-card" id="soapResponseCard" style="display: none;">
-                    <div class="soap-card-header">
-                        <div class="soap-title-group">
-                            <span class="soap-pulse-icon">📡</span>
+            <!-- OVERVIEW TWO-PANEL WIDGETS -->
+            <div class="overview-grid">
+                <!-- Low Stock Items Quick List -->
+                <div class="card overview-card">
+                    <div class="card-header">
+                        <div class="header-title-group">
+                            <span class="header-icon-sm">⚠️</span>
                             <div>
-                                <h2 class="soap-card-title">SOAP 1.1 Service Response</h2>
-                                <span class="soap-card-subtitle" id="soapEndpointLabel">Target: POST /ws • Operation: —</span>
+                                <h3 class="card-title">Low Stock Attention</h3>
+                                <p class="card-subtitle">Items currently near or below safety threshold</p>
                             </div>
                         </div>
-                        <span class="soap-status-badge badge-success" id="soapResponseStatus">SUCCESS</span>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="navigateTo('restocking')">
+                            Restock Plan ↗
+                        </button>
                     </div>
-
-                    <div class="soap-card-body" id="soapResponseBody">
-                        <!-- Populated dynamically by script.js -->
-                    </div>
-
-                    <!-- Collapsible Raw SOAP XML Envelope Viewer -->
-                    <div class="soap-raw-accordion">
-                        <details id="soapRawDetails">
-                            <summary class="soap-raw-summary">
-                                <span>📄 Inspect Raw SOAP XML Envelope</span>
-                                <span class="soap-raw-tag">XML /ws</span>
-                            </summary>
-                            <div class="soap-raw-content">
-                                <pre><code id="soapRawXmlCode"></code></pre>
-                            </div>
-                        </details>
-                    </div>
-                </div>
-
-                <!-- PRODUCT DETAILS CARD -->
-                <div class="card details-card">
-                    <div class="details-card-header">
-                        <h2>Product Details</h2>
-                        <span class="details-badge" id="detailsStatusBadge">No Selection</span>
-                    </div>
-
-                    <div id="productDetails" class="product-details-content">
-                        <div class="empty-state">
-                            <div class="empty-icon">📦</div>
-                            <h3 class="empty-title">No Product Selected</h3>
-                            <p class="empty-desc">Retrieve a product using "Get Product" or add a new one to inspect its full details here.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- RECENT SESSION PRODUCTS -->
-                <div class="card recent-card">
-                    <div class="recent-card-header">
-                        <h3>Session Products Cache</h3>
-                        <span class="count-badge" id="cachedCountBadge">0 items</span>
-                    </div>
-                    <div id="recentProductsList" class="recent-list">
-                        <div class="recent-empty">No products recorded in this session yet.</div>
-                    </div>
-                </div>
-
-            </section>
-
-        </div>
-        <!-- END WORKSPACE GRID -->
-
-        <!-- INVENTORY OVERVIEW TABLE -->
-        <section class="card inventory-table-card" id="inventoryOverviewSection">
-            <div class="inventory-table-header">
-                <div class="inventory-table-title-group">
-                    <div class="table-title-row">
-                        <span class="table-icon">📋</span>
-                        <h2 class="table-card-title">Inventory Overview</h2>
-                        <span class="live-sync-badge" id="tableSyncBadge">● Live Database</span>
-                        <span class="table-count-pill" id="tableProductCount">0 items</span>
-                    </div>
-                    <p class="table-card-subtitle">Real-time inventory records synchronized via SOAP <code>getAllProducts</code> (POST /ws)</p>
-                </div>
-                <div class="inventory-table-controls">
-                    <div class="filter-group">
-                        <label for="filterLowStockToggle" class="filter-toggle-label">
-                            <input type="checkbox" id="filterLowStockToggle" onchange="toggleLowStockFilter()">
-                            <span class="toggle-text">⚠️ Low Stock Only (&lt; 5 units)</span>
-                        </label>
-                    </div>
-                    <div class="search-group">
-                        <input type="text" id="inventorySearchInput" placeholder="Filter by ID, name, category..." oninput="filterInventoryTable()">
-                    </div>
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="fetchAllProducts(true)">
-                        <span>🔄 Refresh</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Table Container with Loading / Empty / Data states -->
-            <div class="table-responsive" id="inventoryTableContainer">
-                <!-- Dynamically populated by script.js -->
-            </div>
-        </section>
-
-        <!-- WEATHER-AWARE INVENTORY OPERATIONS & RISK ADVISORIES SECTION -->
-        <section class="card weather-card" id="weatherRiskSection">
-            <div class="weather-header">
-                <div class="weather-title-group">
-                    <div class="table-title-row">
-                        <span class="table-icon">🌦️</span>
-                        <h2 class="table-card-title">Weather & Operations Risk Advisories</h2>
-                        <span class="live-sync-badge" id="weatherLiveBadge">● Live Open-Meteo Integration</span>
-                        <span class="rule-badge">Rule-Based Advisory Engine (Forecast Horizon)</span>
-                    </div>
-                    <p class="table-card-subtitle">
-                        Monitors meteorological forecasts at the primary warehouse distribution hub to generate rule-based operational advisories for yard staging, dock receiving, and inventory replenishment planning.
-                    </p>
-                </div>
-                <div class="activity-controls">
-                    <div class="weather-horizon-box">
-                        <label for="weatherHorizonSelect">Horizon:</label>
-                        <select id="weatherHorizonSelect" onchange="onWeatherHorizonChange()">
-                            <option value="48" selected>Next 48 Hours</option>
-                            <option value="24">Next 24 Hours</option>
-                            <option value="12">Next 12 Hours</option>
-                        </select>
-                    </div>
-                    <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshWeather" onclick="fetchWeatherAdvisories(true)">
-                        <span id="weatherRefreshBtnText">🔄 Refresh Forecast</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Conservative Forecast Disclaimer Banner -->
-            <div class="weather-disclaimer-banner">
-                <span class="disclaimer-icon">ℹ️</span>
-                <span class="disclaimer-text">
-                    <strong>Operational Notice:</strong> Advisories represent conservative meteorological rule evaluations for warehouse logistics and staging. They are forecast-based indications, not confirmations of road closures, carrier disruptions, or actual incidents.
-                </span>
-            </div>
-
-            <!-- Warehouse & Current Weather Overview Grid -->
-            <div class="weather-overview-grid" id="weatherOverviewGrid">
-                <div class="weather-overview-card weather-hub-card">
-                    <div class="hub-icon">🏭</div>
-                    <div class="hub-info">
-                        <div class="hub-label">WAREHOUSE DISTRIBUTION HUB</div>
-                        <div class="hub-name" id="weatherHubName">Mumbai Central Distribution Hub</div>
-                        <div class="hub-coords" id="weatherHubCoords">19.0760° N, 72.8777° E • Primary Hub</div>
-                        <div class="hub-retrieval" id="weatherRetrievalTime">Refreshed: --</div>
-                    </div>
-                </div>
-
-                <div class="weather-overview-card weather-current-card">
-                    <div class="weather-kpi-icon" id="weatherCurrentIcon">☀️</div>
-                    <div class="weather-kpi-content">
-                        <div class="kpi-label">CURRENT CONDITIONS</div>
-                        <div class="weather-metric-large" id="weatherCurrentTemp">-- °C</div>
-                        <div class="weather-condition-desc" id="weatherCurrentCondition">Loading conditions...</div>
-                        <div class="weather-wind-note" id="weatherCurrentWind">Wind: -- km/h</div>
-                    </div>
-                </div>
-
-                <div class="weather-overview-card weather-status-card">
-                    <div class="weather-kpi-icon" id="weatherRiskLevelIcon">🛡️</div>
-                    <div class="weather-kpi-content">
-                        <div class="kpi-label">ADVISORY STATUS</div>
-                        <div class="weather-risk-level" id="weatherAdvisoryRiskLevel">EVALUATING</div>
-                        <div class="weather-risk-summary" id="weatherAdvisoryRiskSummary">Evaluating meteorological rules...</div>
-                        <div class="weather-cache-indicator" id="weatherCacheIndicator">Status: Connected</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Active Advisories List Container -->
-            <div class="weather-advisories-container" id="weatherAdvisoriesContainer">
-                <div class="table-loading">
-                    <span class="supplier-spinner">🔄</span>
-                    <span>Querying Open-Meteo forecast telemetry and evaluating operational rules via SOAP GetWeatherAdvisories...</span>
-                </div>
-            </div>
-        </section>
-
-        <!-- SMART RESTOCKING & SUPPLIER COST COMPARISON SECTION -->
-        <section class="card restock-card" id="smartRestockingSection">
-            <div class="restock-header">
-                <div class="restock-title-group">
-                    <div class="table-title-row">
-                        <span class="table-icon">💡</span>
-                        <h2 class="table-card-title">Smart Restocking & Supplier Analysis</h2>
-                        <span class="live-sync-badge">● Automated Recommendations</span>
-                        <span class="rule-badge">Rule-Based: Target 20 Units | Threshold &lt; 5 Units</span>
-                    </div>
-                    <p class="table-card-subtitle">Connects live database stock levels with Supplier REST availability, commercial pricing, and Frankfurter currency conversion for optimal replenishment decisions.</p>
-                </div>
-                <div class="activity-controls">
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="renderSmartRestocking()">
-                        <span>🔄 Re-evaluate Recommendations</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Weather Alert Integration for Restocking -->
-            <div class="restock-weather-alert" id="restockWeatherAlert" style="display: none;"></div>
-
-            <!-- Summary KPI Metrics -->
-            <div class="restock-kpi-grid">
-                <div class="restock-kpi-card kpi-warning">
-                    <div class="kpi-icon">⚠️</div>
-                    <div class="kpi-info">
-                        <div class="kpi-num" id="restockCandidatesCount">0</div>
-                        <div class="kpi-label">Replenishment Candidates (&lt; 5 stock)</div>
-                    </div>
-                </div>
-                <div class="restock-kpi-card kpi-danger">
-                    <div class="kpi-icon">🚨</div>
-                    <div class="kpi-info">
-                        <div class="kpi-num" id="restockCriticalCount">0</div>
-                        <div class="kpi-label">Critical Out-of-Stock (0 stock)</div>
-                    </div>
-                </div>
-                <div class="restock-kpi-card kpi-primary">
-                    <div class="kpi-icon">📦</div>
-                    <div class="kpi-info">
-                        <div class="kpi-num" id="restockTotalUnitsCount">0</div>
-                        <div class="kpi-label">Total Units Suggested to Target (20)</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Two-Pane Layout: Candidates & Supplier Analysis -->
-            <div class="restock-content-grid">
-                <!-- Left Column: Candidates Table -->
-                <div class="restock-candidates-pane">
-                    <div class="pane-subtitle-row">
-                        <h3 class="pane-subtitle">Replenishment Candidates</h3>
-                        <span class="pane-tag" id="restockTableCountTag">0 items</span>
-                    </div>
-                    <div class="table-responsive" id="restockTableContainer">
+                    <div id="overviewLowStockContainer" class="overview-widget-content">
                         <!-- Populated by script.js -->
                     </div>
                 </div>
 
-                <!-- Right Column: Supplier Analysis & Simulated Receipt -->
-                <div class="restock-analysis-pane" id="restockAnalysisPane">
-                    <div class="analysis-placeholder" id="restockAnalysisPlaceholder">
-                        <span class="analysis-ph-icon">🔍</span>
-                        <h4>Supplier Option & Cost Analysis</h4>
-                        <p>Select any replenishment candidate from the list to query supplier availability, evaluate fulfillment capacity, compare procurement costs, and execute simulated stock receipts.</p>
+                <!-- Recent Stock Activity Quick Feed -->
+                <div class="card overview-card">
+                    <div class="card-header">
+                        <div class="header-title-group">
+                            <span class="header-icon-sm">📋</span>
+                            <div>
+                                <h3 class="card-title">Recent Stock Activity</h3>
+                                <p class="card-subtitle">Latest movements recorded across warehouse</p>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="navigateTo('activity')">
+                            Full History ↗
+                        </button>
                     </div>
+                    <div id="overviewRecentActivityContainer" class="overview-widget-content">
+                        <!-- Populated by script.js -->
+                    </div>
+                </div>
+            </div>
 
-                    <div class="analysis-card" id="restockAnalysisCard" style="display: none;">
-                        <!-- Populated dynamically by script.js -->
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 2: PRODUCTS PAGE                                         -->
+        <!-- ============================================================= -->
+        <section id="view-products" class="view-section">
+            <div class="card table-card" id="inventoryOverviewSection">
+                <div class="table-card-header">
+                    <div class="table-header-left">
+                        <h2 class="table-title">Product Catalog</h2>
+                        <span class="count-pill" id="tableProductCount">0 items</span>
+                        <span id="tableSyncBadge" style="display: none;">● Live</span>
                     </div>
+                    <div class="table-controls">
+                        <div class="search-box">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" id="inventorySearchInput" placeholder="Search by ID, name, or category..." oninput="filterInventoryTable()">
+                        </div>
+                        <label class="filter-checkbox-label">
+                            <input type="checkbox" id="filterLowStockToggle" onchange="toggleLowStockFilter()">
+                            <span>Low Stock Only</span>
+                        </label>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('modal-add')">
+                            <span>➕ Add Product</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="fetchAllProducts(true)">
+                            <span>🔄 Refresh</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="table-responsive" id="inventoryTableContainer">
+                    <!-- Populated by script.js -->
                 </div>
             </div>
         </section>
 
-        <!-- STOCK ACTIVITY SECTION -->
-        <section class="card stock-activity-card" id="stockActivitySection">
-            <div class="activity-header">
-                <div class="activity-title-group">
-                    <div class="table-title-row">
-                        <span class="table-icon">📜</span>
-                        <h2 class="table-card-title">Stock Activity & Movement History</h2>
-                        <span class="live-sync-badge">● Persistent Audit Log</span>
-                        <span class="table-count-pill" id="movementsCountPill">0 records</span>
+        <!-- ============================================================= -->
+        <!-- VIEW 3: STOCK ACTIVITY PAGE                                   -->
+        <!-- ============================================================= -->
+        <section id="view-activity" class="view-section">
+            <div class="card table-card" id="stockActivitySection">
+                <div class="table-card-header">
+                    <div class="table-header-left">
+                        <h2 class="table-title">Stock Movement History</h2>
+                        <span class="count-pill" id="movementsCountPill">0 records</span>
                     </div>
-                    <p class="table-card-subtitle">Complete chronological history of stock additions, deductions, and manual adjustments via SOAP <code>getStockMovements</code> (POST /ws)</p>
+                    <div class="table-controls">
+                        <div class="filter-box">
+                            <label for="movementProductFilter">Filter by Product ID:</label>
+                            <input type="number" id="movementProductFilter" placeholder="All (or ID)" min="1" oninput="onMovementFilterChange()">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="clearMovementFilter()">Clear</button>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('modal-adjust')">
+                            <span>⚖️ Record Stock Adjustment</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="fetchStockMovements(true)">
+                            <span>🔄 Refresh</span>
+                        </button>
+                    </div>
                 </div>
-                <div class="activity-controls">
-                    <div class="activity-filter-box">
-                        <label for="movementProductFilter">Filter by Product ID:</label>
-                        <input type="number" id="movementProductFilter" placeholder="All Products (or enter ID)" min="1" oninput="onMovementFilterChange()">
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearMovementFilter()">Clear</button>
-                    </div>
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="fetchStockMovements(true)">
-                        <span>🔄 Refresh History</span>
-                    </button>
+
+                <div class="table-responsive" id="movementsTableContainer">
+                    <!-- Populated by script.js -->
                 </div>
             </div>
+        </section>
 
-            <!-- Movements Table Container -->
-            <div class="table-responsive" id="movementsTableContainer">
-                <!-- Dynamically populated by script.js -->
+        <!-- ============================================================= -->
+        <!-- VIEW 4: RESTOCKING PAGE                                       -->
+        <!-- ============================================================= -->
+        <section id="view-restocking" class="view-section">
+            <div class="card restock-card" id="smartRestockingSection">
+
+                <!-- 3 Summary KPI Cards -->
+                <div class="restock-kpi-grid">
+                    <div class="restock-kpi-card kpi-warning">
+                        <div class="kpi-icon">⚠️</div>
+                        <div class="kpi-info">
+                            <div class="kpi-num" id="restockCandidatesCount">0</div>
+                            <div class="kpi-label">Replenishment Candidates</div>
+                        </div>
+                    </div>
+                    <div class="restock-kpi-card kpi-danger">
+                        <div class="kpi-icon">🚨</div>
+                        <div class="kpi-info">
+                            <div class="kpi-num" id="restockCriticalCount">0</div>
+                            <div class="kpi-label">Critical Out-of-Stock</div>
+                        </div>
+                    </div>
+                    <div class="restock-kpi-card kpi-primary">
+                        <div class="kpi-icon">📦</div>
+                        <div class="kpi-info">
+                            <div class="kpi-num" id="restockTotalUnitsCount">0</div>
+                            <div class="kpi-label">Total Units Suggested to Target</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Weather logistics alert banner -->
+                <div class="restock-weather-alert" id="restockWeatherAlert" style="display: none;"></div>
+
+                <!-- 2-Column Restocking Content -->
+                <div class="restock-content-grid">
+                    <!-- Left: Candidates Table -->
+                    <div class="restock-candidates-pane">
+                        <div class="pane-subtitle-row">
+                            <h3 class="pane-subtitle">Replenishment Candidates</h3>
+                            <span class="pane-tag" id="restockTableCountTag">0 items</span>
+                        </div>
+                        <div class="table-responsive" id="restockTableContainer">
+                            <!-- Populated by script.js -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Supplier Analysis & Stock Receipt -->
+                    <div class="restock-analysis-pane" id="restockAnalysisPane">
+                        <div class="analysis-placeholder" id="restockAnalysisPlaceholder">
+                            <span class="analysis-ph-icon">🔍</span>
+                            <h4>Supplier Option & Cost Analysis</h4>
+                            <p>Select any replenishment candidate to check supplier availability, wholesale pricing, and record received inventory.</p>
+                        </div>
+                        <div class="analysis-card" id="restockAnalysisCard" style="display: none;">
+                            <!-- Populated by script.js -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 5: OPERATIONS & WEATHER PAGE                             -->
+        <!-- ============================================================= -->
+        <section id="view-operations" class="view-section">
+            <div class="card weather-card" id="weatherRiskSection">
+                <div class="weather-header">
+                    <div class="weather-title-group">
+                        <h2 class="table-title">Warehouse Operations & Weather</h2>
+                        <span id="weatherLiveBadge" style="display: none;">● Active</span>
+                        <p class="table-card-subtitle">Real-time facility weather monitoring and operational alerts affecting yard staging, receiving, and carrier dispatch.</p>
+                    </div>
+                    <div class="activity-controls">
+                        <div class="weather-horizon-box">
+                            <label for="weatherHorizonSelect">Forecast Horizon:</label>
+                            <select id="weatherHorizonSelect" onchange="onWeatherHorizonChange()">
+                                <option value="48" selected>Next 48 Hours</option>
+                                <option value="24">Next 24 Hours</option>
+                                <option value="12">Next 12 Hours</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshWeather" onclick="fetchWeatherAdvisories(true)">
+                            <span id="weatherRefreshBtnText">🔄 Refresh</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Warehouse & Current Weather Overview Grid -->
+                <div class="weather-overview-grid" id="weatherOverviewGrid">
+                    <div class="weather-overview-card weather-hub-card">
+                        <div class="hub-icon">🏭</div>
+                        <div class="hub-info">
+                            <div class="hub-label">FACILITY LOCATION</div>
+                            <div class="hub-name" id="weatherHubName">Mumbai Central Distribution Hub</div>
+                            <div class="hub-coords" id="weatherHubCoords">Primary Logistics Hub</div>
+                            <div class="hub-retrieval" id="weatherRetrievalTime">Updated: --</div>
+                        </div>
+                    </div>
+
+                    <div class="weather-overview-card weather-current-card">
+                        <div class="weather-kpi-icon" id="weatherCurrentIcon">☀️</div>
+                        <div class="weather-kpi-content">
+                            <div class="kpi-label">CURRENT CONDITIONS</div>
+                            <div class="weather-metric-large" id="weatherCurrentTemp">-- °C</div>
+                            <div class="weather-condition-desc" id="weatherCurrentCondition">Loading conditions...</div>
+                            <div class="weather-wind-note" id="weatherCurrentWind">Wind: -- km/h</div>
+                        </div>
+                    </div>
+
+                    <div class="weather-overview-card weather-status-card">
+                        <div class="weather-kpi-icon" id="weatherRiskLevelIcon">🛡️</div>
+                        <div class="weather-kpi-content">
+                            <div class="kpi-label">OPERATIONAL STATUS</div>
+                            <div class="weather-risk-level" id="weatherAdvisoryRiskLevel">EVALUATING</div>
+                            <div class="weather-risk-summary" id="weatherAdvisoryRiskSummary">Evaluating operational conditions...</div>
+                            <div class="weather-cache-indicator" id="weatherCacheIndicator">Status: Connected</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Advisories List Container -->
+                <div class="weather-advisories-container" id="weatherAdvisoriesContainer">
+                    <div class="table-loading">
+                        <span class="supplier-spinner">🔄</span>
+                        <span>Loading current operational advisories...</span>
+                    </div>
+                </div>
             </div>
         </section>
 
     </main>
 
+</div>
+
+<!-- ================================================================= -->
+<!-- MODAL DIALOGS FOR USER ACTIONS                                    -->
+<!-- ================================================================= -->
+
+<!-- MODAL: ADD PRODUCT -->
+<div id="modal-add" class="modal-overlay" onclick="onBackdropClick(event, 'modal-add')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Add New Product</h3>
+            <button type="button" class="modal-close" onclick="closeModal('modal-add')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="addId">Product ID <span class="required">*</span></label>
+                    <input type="number" id="addId" placeholder="e.g. 101" min="1" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="addName">Product Name <span class="required">*</span></label>
+                    <input type="text" id="addName" placeholder="e.g. Mechanical Keyboard">
+                </div>
+                <div class="form-group">
+                    <label for="addQuantity">Initial Quantity <span class="required">*</span></label>
+                    <input type="number" id="addQuantity" placeholder="e.g. 25" min="0" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="addPrice">Unit Price (₹) <span class="required">*</span></label>
+                    <input type="number" id="addPrice" placeholder="e.g. 3499.00" min="0" step="0.01">
+                </div>
+                <div class="form-group form-group-full">
+                    <label for="addCategory">Category <span class="required">*</span></label>
+                    <input type="text" id="addCategory" placeholder="e.g. Electronics, Peripherals, Accessories">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-add')">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="addProduct()">Add Product</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: EDIT PRODUCT -->
+<div id="modal-update" class="modal-overlay" onclick="onBackdropClick(event, 'modal-update')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Edit Product Details</h3>
+            <button type="button" class="modal-close" onclick="closeModal('modal-update')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="updateId">Product ID</label>
+                    <input type="number" id="updateId" readonly class="input-readonly">
+                </div>
+                <div class="form-group">
+                    <label for="updateName">Product Name <span class="required">*</span></label>
+                    <input type="text" id="updateName" placeholder="e.g. Mechanical Keyboard Pro">
+                </div>
+                <div class="form-group">
+                    <label for="updateQuantity">Quantity <span class="required">*</span></label>
+                    <input type="number" id="updateQuantity" min="0" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="updatePrice">Unit Price (₹) <span class="required">*</span></label>
+                    <input type="number" id="updatePrice" min="0" step="0.01">
+                </div>
+                <div class="form-group form-group-full">
+                    <label for="updateCategory">Category <span class="required">*</span></label>
+                    <input type="text" id="updateCategory" placeholder="e.g. Electronics">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-update')">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="updateProduct()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: ADJUST STOCK -->
+<div id="modal-adjust" class="modal-overlay" onclick="onBackdropClick(event, 'modal-adjust')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Record Stock Adjustment</h3>
+            <button type="button" class="modal-close" onclick="closeModal('modal-adjust')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="adjustId">Product ID <span class="required">*</span></label>
+                    <input type="number" id="adjustId" placeholder="e.g. 101" min="1" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="adjustMode">Adjustment Mode <span class="required">*</span></label>
+                    <select id="adjustMode" class="form-select" onchange="onAdjustModeChange()">
+                        <option value="change">Relative Change (+/- delta)</option>
+                        <option value="target">Target Quantity (Set absolute stock)</option>
+                    </select>
+                </div>
+                <div class="form-group form-group-full">
+                    <label for="adjustQuantity" id="adjustQuantityLabel">Quantity Change (e.g. +5 or -3) <span class="required">*</span></label>
+                    <input type="number" id="adjustQuantity" placeholder="e.g. 5 or -2" step="1">
+                    <span class="form-hint" id="adjustQuantityHint">Enter positive number to add stock, negative to deduct stock.</span>
+                </div>
+                <div class="form-group form-group-full">
+                    <label for="adjustReason">Reason / Audit Note <span class="required">*</span></label>
+                    <input type="text" id="adjustReason" placeholder="e.g. Physical inventory cycle count, customer order shipment, damaged in transit">
+                </div>
+                <div class="form-group form-group-full">
+                    <label for="adjustReference">Reference / PO # (Optional)</label>
+                    <input type="text" id="adjustReference" placeholder="e.g. PO-1044, AUDIT-2026-Q4">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-adjust')">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="adjustStock()">Submit Adjustment</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: DELETE PRODUCT CONFIRMATION -->
+<div id="modal-delete" class="modal-overlay" onclick="onBackdropClick(event, 'modal-delete')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Delete Product</h3>
+            <button type="button" class="modal-close" onclick="closeModal('modal-delete')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="warning-callout">
+                <span class="warning-icon">⚠️</span>
+                <span>Are you sure you want to permanently remove this product from the inventory catalog? Historical stock movement records will be preserved for audit purposes.</span>
+            </div>
+            <div class="form-group form-group-full" style="margin-top: 16px;">
+                <label for="deleteId">Product ID</label>
+                <input type="number" id="deleteId" readonly class="input-readonly">
+                <p id="deleteProductName" style="margin-top: 8px; font-weight: 600; color: var(--text-primary);"></p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-delete')">Cancel</button>
+            <button type="button" class="btn btn-danger" onclick="deleteProduct()">Delete Product</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: PRODUCT DETAILS -->
+<div id="modal-details" class="modal-overlay" onclick="onBackdropClick(event, 'modal-details')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Product Details</h3>
+            <span class="details-badge" id="detailsStatusBadge">Selected</span>
+            <button type="button" class="modal-close" onclick="closeModal('modal-details')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="productDetails" class="product-details-content">
+                <div class="empty-state">
+                    <div class="empty-icon">📦</div>
+                    <h3 class="empty-title">No Product Selected</h3>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-details')">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================================================================= -->
+<!-- HIDDEN BACKWARD-COMPATIBILITY HARNESS FOR JAVASCRIPT               -->
+<!-- (Preserves all DOM element IDs expected by script.js without      -->
+<!-- exposing technical debug cards or raw SOAP panels in the UI)      -->
+<!-- ================================================================= -->
+<div style="display: none !important;" aria-hidden="true">
+    <span id="statTotalValue">₹0.00</span>
+    <span id="statLastOp">Ready</span>
+    <span id="statLastOpTime">System initialized</span>
+    <span id="cachedCountBadge">0 items</span>
+    <div id="recentProductsList"></div>
+    <input type="number" id="getId">
+    <input type="number" id="externalId">
+    <div id="externalInfoResult"></div>
+    <div id="supplierDetailsContainer"></div>
+    <div id="soapResponseCard">
+        <span id="soapEndpointLabel"></span>
+        <span id="soapResponseStatus"></span>
+        <div id="soapResponseBody"></div>
+        <details id="soapRawDetails">
+            <code id="soapRawXmlCode"></code>
+        </details>
+    </div>
+    <!-- Legacy tab buttons & panes for switchTab fallback -->
+    <div id="tab-btn-add"></div>
+    <div id="tab-btn-get"></div>
+    <div id="tab-btn-update"></div>
+    <div id="tab-btn-delete"></div>
+    <div id="tab-btn-adjust"></div>
+    <div id="tab-btn-external"></div>
+    <div id="tab-pane-add"></div>
+    <div id="tab-pane-get"></div>
+    <div id="tab-pane-update"></div>
+    <div id="tab-pane-delete"></div>
+    <div id="tab-pane-adjust"></div>
+    <div id="tab-pane-external"></div>
+    <div id="nav-add"></div>
+    <div id="nav-get"></div>
+    <div id="nav-update"></div>
+    <div id="nav-delete"></div>
+    <div id="nav-adjust"></div>
+    <div id="nav-external"></div>
+    <div id="nav-table"></div>
+    <div id="nav-restock"></div>
+    <div id="nav-weather"></div>
 </div>
 
 <script src="script.js"></script>
