@@ -247,4 +247,41 @@
         </xs:complexType>
     </xs:element>
 
+    <!-- Weather Operational Risk Advisory Contract -->
+    <xs:complexType name="WeatherAdvisory">
+        <xs:sequence>
+            <xs:element name="id" type="xs:string"/>
+            <xs:element name="severity" type="xs:string"/>
+            <xs:element name="title" type="xs:string"/>
+            <xs:element name="description" type="xs:string"/>
+            <xs:element name="expectedTime" type="xs:string"/>
+            <xs:element name="triggerConditions" type="xs:string"/>
+            <xs:element name="recommendedAction" type="xs:string"/>
+            <xs:element name="disclaimer" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:element name="GetWeatherAdvisoriesRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="maxHorizonHours" type="xs:int" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="GetWeatherAdvisoriesResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="location" type="xs:string"/>
+                <xs:element name="latitude" type="xs:double"/>
+                <xs:element name="longitude" type="xs:double"/>
+                <xs:element name="retrievalTime" type="xs:string"/>
+                <xs:element name="forecastHorizonHours" type="xs:int"/>
+                <xs:element name="currentWeather" type="tns:WeatherInfo" minOccurs="0"/>
+                <xs:element name="advisories" type="tns:WeatherAdvisory" minOccurs="0" maxOccurs="unbounded"/>
+                <xs:element name="status" type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
 </xs:schema>

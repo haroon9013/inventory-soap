@@ -62,6 +62,10 @@
                 <span class="nav-icon">💡</span>
                 <span>Smart Restocking</span>
             </button>
+            <button class="nav-item" id="nav-weather" onclick="scrollToWeatherRisk()">
+                <span class="nav-icon">🌦️</span>
+                <span>Weather & Risk</span>
+            </button>
         </nav>
 
         <div class="sidebar-footer">
@@ -505,6 +509,85 @@
             </div>
         </section>
 
+        <!-- WEATHER-AWARE INVENTORY OPERATIONS & RISK ADVISORIES SECTION -->
+        <section class="card weather-card" id="weatherRiskSection">
+            <div class="weather-header">
+                <div class="weather-title-group">
+                    <div class="table-title-row">
+                        <span class="table-icon">🌦️</span>
+                        <h2 class="table-card-title">Weather & Operations Risk Advisories</h2>
+                        <span class="live-sync-badge" id="weatherLiveBadge">● Live Open-Meteo Integration</span>
+                        <span class="rule-badge">Rule-Based Advisory Engine (Forecast Horizon)</span>
+                    </div>
+                    <p class="table-card-subtitle">
+                        Monitors meteorological forecasts at the primary warehouse distribution hub to generate rule-based operational advisories for yard staging, dock receiving, and inventory replenishment planning.
+                    </p>
+                </div>
+                <div class="activity-controls">
+                    <div class="weather-horizon-box">
+                        <label for="weatherHorizonSelect">Horizon:</label>
+                        <select id="weatherHorizonSelect" onchange="onWeatherHorizonChange()">
+                            <option value="48" selected>Next 48 Hours</option>
+                            <option value="24">Next 24 Hours</option>
+                            <option value="12">Next 12 Hours</option>
+                        </select>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshWeather" onclick="fetchWeatherAdvisories(true)">
+                        <span id="weatherRefreshBtnText">🔄 Refresh Forecast</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Conservative Forecast Disclaimer Banner -->
+            <div class="weather-disclaimer-banner">
+                <span class="disclaimer-icon">ℹ️</span>
+                <span class="disclaimer-text">
+                    <strong>Operational Notice:</strong> Advisories represent conservative meteorological rule evaluations for warehouse logistics and staging. They are forecast-based indications, not confirmations of road closures, carrier disruptions, or actual incidents.
+                </span>
+            </div>
+
+            <!-- Warehouse & Current Weather Overview Grid -->
+            <div class="weather-overview-grid" id="weatherOverviewGrid">
+                <div class="weather-overview-card weather-hub-card">
+                    <div class="hub-icon">🏭</div>
+                    <div class="hub-info">
+                        <div class="hub-label">WAREHOUSE DISTRIBUTION HUB</div>
+                        <div class="hub-name" id="weatherHubName">Mumbai Central Distribution Hub</div>
+                        <div class="hub-coords" id="weatherHubCoords">19.0760° N, 72.8777° E • Primary Hub</div>
+                        <div class="hub-retrieval" id="weatherRetrievalTime">Refreshed: --</div>
+                    </div>
+                </div>
+
+                <div class="weather-overview-card weather-current-card">
+                    <div class="weather-kpi-icon" id="weatherCurrentIcon">☀️</div>
+                    <div class="weather-kpi-content">
+                        <div class="kpi-label">CURRENT CONDITIONS</div>
+                        <div class="weather-metric-large" id="weatherCurrentTemp">-- °C</div>
+                        <div class="weather-condition-desc" id="weatherCurrentCondition">Loading conditions...</div>
+                        <div class="weather-wind-note" id="weatherCurrentWind">Wind: -- km/h</div>
+                    </div>
+                </div>
+
+                <div class="weather-overview-card weather-status-card">
+                    <div class="weather-kpi-icon" id="weatherRiskLevelIcon">🛡️</div>
+                    <div class="weather-kpi-content">
+                        <div class="kpi-label">ADVISORY STATUS</div>
+                        <div class="weather-risk-level" id="weatherAdvisoryRiskLevel">EVALUATING</div>
+                        <div class="weather-risk-summary" id="weatherAdvisoryRiskSummary">Evaluating meteorological rules...</div>
+                        <div class="weather-cache-indicator" id="weatherCacheIndicator">Status: Connected</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Advisories List Container -->
+            <div class="weather-advisories-container" id="weatherAdvisoriesContainer">
+                <div class="table-loading">
+                    <span class="supplier-spinner">🔄</span>
+                    <span>Querying Open-Meteo forecast telemetry and evaluating operational rules via SOAP GetWeatherAdvisories...</span>
+                </div>
+            </div>
+        </section>
+
         <!-- SMART RESTOCKING & SUPPLIER COST COMPARISON SECTION -->
         <section class="card restock-card" id="smartRestockingSection">
             <div class="restock-header">
@@ -523,6 +606,9 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Weather Alert Integration for Restocking -->
+            <div class="restock-weather-alert" id="restockWeatherAlert" style="display: none;"></div>
 
             <!-- Summary KPI Metrics -->
             <div class="restock-kpi-grid">

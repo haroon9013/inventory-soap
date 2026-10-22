@@ -6,17 +6,23 @@ import com.example.inventory.client.SupplierClient;
 import com.example.inventory.dto.CurrencyInfoDto;
 import com.example.inventory.dto.ProductExternalInfoDto;
 import com.example.inventory.dto.SupplierAvailabilityDto;
+import com.example.inventory.dto.WarehouseForecastReportDto;
+import com.example.inventory.dto.WeatherAdvisoryDto;
 import com.example.inventory.dto.WeatherInfoDto;
 import com.example.inventory.entity.ProductEntity;
 import com.example.inventory.entity.StockMovementEntity;
 import com.example.inventory.generated.AdjustStockResponse;
+import com.example.inventory.generated.GetWeatherAdvisoriesResponse;
 import com.example.inventory.generated.Product;
 import com.example.inventory.generated.StockMovement;
+import com.example.inventory.generated.WeatherAdvisory;
 import com.example.inventory.repository.ProductRepository;
 import com.example.inventory.repository.StockMovementRepository;
 import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -748,5 +754,238 @@ class InventoryServiceTest {
 
         // Verify Frankfurter was called with INR base currency, NOT EUR
         verify(frankfurterClient).convertCurrency(55000.0, "INR", "USD");
+    }
+
+    // --------------------------------------------------------------------------
+    // Milestone 4: Weather-Aware Inventory Operations & Risk Advisories Tests
+    // --------------------------------------------------------------------------
+
+    @Test
+    void testGetWeatherAdvisoriesSuccessMapping() {
+        List<WeatherAdvisoryDto> dtoList = new ArrayList<>();
+        dtoList.add(new WeatherAdvisoryDto(
+                "ADV-PRECIP-HEAVY",
+                "HIGH",
+                "Heavy Precipitation Risk",
+                "High probability of heavy rain.",
+                "2026-10-23T14:00",
+                "Precipitation Probability = 85%",
+                "Ensure covered loading bays.",
+                "Forecast-based operational advisory."
+        ));
+
+        WarehouseForecastReportDto mockReport = new WarehouseForecastReportDto(
+                "Mumbai Central Distribution Hub",
+                19.0760,
+                72.8777,
+                "2026-10-22 12:00:00",
+                48,
+                28.0,
+                14.5,
+                "Mainly Clear",
+                "SUCCESS: Live forecast from Open-Meteo API",
+                dtoList
+        );
+
+        when(openMeteoClient.getWarehouseForecastAndAdvisories(48, false)).thenReturn(mockReport);
+        when(productRepository.findAll()).thenReturn(Collections.emptyList());
+
+        GetWeatherAdvisoriesResponse response = inventoryService.getWeatherAdvisories(48, false);
+
+        assertNotNull(response);
+        assertEquals("Mumbai Central Distribution Hub", response.getLocation());
+        assertEquals(19.0760, response.getLatitude(), 0.001);
+        assertEquals(72.8777, response.getLongitude(), 0.001);
+        assertEquals("2026-10-22 12:00:00", response.getRetrievalTime());
+        assertEquals(48, response.getForecastHorizonHours());
+        assertTrue(response.getStatus().contains("SUCCESS"));
+
+        assertNotNull(response.getCurrentWeather());
+        assertEquals(28.0, response.getCurrentWeather().getTemperature());
+        assertEquals(14.5, response.getCurrentWeather().getWindSpeed());
+        assertEquals("Mainly Clear", response.getCurrentWeather().getWeatherCondition());
+
+        assertEquals(1, response.getAdvisories().size());
+        WeatherAdvisory adv = response.getAdvisories().get(0);
+        assertEquals("ADV-PRECIP-HEAVY", adv.getId());
+        assertEquals("HIGH", adv.getSeverity());
+        assertEquals("Heavy Precipitation Risk", adv.getTitle());
+        assertEquals("Ensure covered loading bays.", adv.getRecommendedAction());
+    }
+
+    @Test
+    void testGetWeatherAdvisoriesWithNullClientFallback() {
+        InventoryService serviceWithoutWeather = new InventoryService(
+                productRepository,
+                stockMovementRepository,
+                null,
+                null,
+                null
+        );
+
+        GetWeatherAdvisoriesResponse response = serviceWithoutWeather.getWeatherAdvisories(24, false);
+
+        assertNotNull(response);
+        assertEquals("Warehouse Hub", response.getLocation());
+        assertTrue(response.getStatus().contains("UNAVAILABLE"));
+        assertEquals(1, response.getAdvisories().size());
+        assertEquals("ADV-METEO-UNCONF", response.getAdvisories().get(0).getId());
+    }
+
+    @Test
+    void testAdverseWeatherCorrelatedWithOutOfStockProducts() {
+        List<WeatherAdvisoryDto> dtoList = new ArrayList<>();
+        dtoList.add(new WeatherAdvisoryDto(
+                "ADV-WIND-HIGH",
+                "WARNING",
+                "High Wind Hazard",
+                "High wind speeds at bays.",
+                "2026-10-23T10:00",
+                "Wind = 40.0 km/h",
+                "Secure external yard tarpaulins.",
+                "Forecast-based indication."
+        ));
+
+        WarehouseForecastReportDto mockReport = new WarehouseForecastReportDto(
+                "Mumbai Central Distribution Hub",
+                19.0760,
+                72.8777,
+                "2026-10-22 12:00:00",
+                48,
+                29.0,
+                40.0,
+                "Windy",
+                "SUCCESS",
+                dtoList
+        );
+
+        when(openMeteoClient.getWarehouseForecastAndAdvisories(48, false)).thenReturn(mockReport);
+
+        // Product 101 has 0 stock (out of stock)
+        ProductEntity outOfStockProduct = createEntity(101, "Mechanical Keyboard", 0, 3500.0, "Peripherals");
+        when(productRepository.findAll()).thenReturn(List.of(outOfStockProduct));
+
+        GetWeatherAdvisoriesResponse response = inventoryService.getWeatherAdvisories(48, false);
+
+        assertNotNull(response);
+        // Original weather advisory + generated product out-of-stock risk advisory
+        assertEquals(2, response.getAdvisories().size());
+
+        Optional<WeatherAdvisory> stockoutAdv = response.getAdvisories().stream()
+                .filter(a -> "ADV-INV-OUT-OF-STOCK".equals(a.getId()))
+                .findFirst();
+
+        assertTrue(stockoutAdv.isPresent());
+        assertEquals("HIGH", stockoutAdv.get().getSeverity());
+        assertTrue(stockoutAdv.get().getTitle().contains("Stockout"));
+        assertTrue(stockoutAdv.get().getDescription().contains("Mechanical Keyboard"));
+        assertTrue(stockoutAdv.get().getRecommendedAction().contains("Prioritize supplier dispatch confirmation"));
+    }
+
+    @Test
+    void testAdverseWeatherCorrelatedWithLowStockReplenishmentProducts() {
+        List<WeatherAdvisoryDto> dtoList = new ArrayList<>();
+        dtoList.add(new WeatherAdvisoryDto(
+                "ADV-WIND-HIGH",
+                "WARNING",
+                "High Wind Hazard",
+                "High wind speeds at bays.",
+                "2026-10-23T10:00",
+                "Wind = 38.0 km/h",
+                "Secure external yard tarpaulins.",
+                "Forecast-based indication."
+        ));
+
+        WarehouseForecastReportDto mockReport = new WarehouseForecastReportDto(
+                "Mumbai Central Distribution Hub",
+                19.0760,
+                72.8777,
+                "2026-10-22 12:00:00",
+                48,
+                29.0,
+                38.0,
+                "Windy",
+                "SUCCESS",
+                dtoList
+        );
+
+        when(openMeteoClient.getWarehouseForecastAndAdvisories(48, false)).thenReturn(mockReport);
+
+        // Product 102 has 3 stock (low stock, but not 0)
+        ProductEntity lowStockProduct = createEntity(102, "USB-C Hub", 3, 1200.0, "Accessories");
+        when(productRepository.findAll()).thenReturn(List.of(lowStockProduct));
+
+        GetWeatherAdvisoriesResponse response = inventoryService.getWeatherAdvisories(48, false);
+
+        assertNotNull(response);
+        assertEquals(2, response.getAdvisories().size());
+
+        Optional<WeatherAdvisory> restockAdv = response.getAdvisories().stream()
+                .filter(a -> "ADV-INV-REPLENISH-TIMING".equals(a.getId()))
+                .findFirst();
+
+        assertTrue(restockAdv.isPresent());
+        assertEquals("WARNING", restockAdv.get().getSeverity());
+        assertTrue(restockAdv.get().getTitle().contains("Replenishment Timing"));
+        assertTrue(restockAdv.get().getRecommendedAction().contains("Review supplier lead times"));
+    }
+
+    @Test
+    void testNormalWeatherDoesNotAddStockoutAdvisory() {
+        List<WeatherAdvisoryDto> dtoList = new ArrayList<>();
+        dtoList.add(new WeatherAdvisoryDto(
+                "ADV-NORMAL-COND",
+                "INFO",
+                "Normal Operating Conditions",
+                "Standard conditions.",
+                "Next 48 Hours",
+                "All metrics normal.",
+                "Standard warehousing schedules apply.",
+                "Forecast-based indication."
+        ));
+
+        WarehouseForecastReportDto mockReport = new WarehouseForecastReportDto(
+                "Mumbai Central Distribution Hub",
+                19.0760,
+                72.8777,
+                "2026-10-22 12:00:00",
+                48,
+                27.0,
+                10.0,
+                "Clear",
+                "SUCCESS",
+                dtoList
+        );
+
+        when(openMeteoClient.getWarehouseForecastAndAdvisories(48, false)).thenReturn(mockReport);
+
+        // Even with out-of-stock product, no weather stockout risk is generated when weather is normal
+        ProductEntity outOfStockProduct = createEntity(101, "Mechanical Keyboard", 0, 3500.0, "Peripherals");
+        when(productRepository.findAll()).thenReturn(List.of(outOfStockProduct));
+
+        GetWeatherAdvisoriesResponse response = inventoryService.getWeatherAdvisories(48, false);
+
+        assertNotNull(response);
+        assertEquals(1, response.getAdvisories().size());
+        assertEquals("ADV-NORMAL-COND", response.getAdvisories().get(0).getId());
+    }
+
+    @Test
+    void testWeatherUnavailableDoesNotBreakInventoryOperations() {
+        when(openMeteoClient.getWarehouseWeather()).thenThrow(new RuntimeException("Meteo timeout"));
+
+        // Product add, get, update, delete still function perfectly
+        Product product = createProduct(105, "Wireless Mouse", 15, 1200.0, "Peripherals");
+        when(productRepository.existsById(105)).thenReturn(false);
+
+        boolean added = inventoryService.addProduct(product);
+        assertTrue(added);
+
+        ProductEntity entity = createEntity(105, "Wireless Mouse", 15, 1200.0, "Peripherals");
+        when(productRepository.findById(105)).thenReturn(Optional.of(entity));
+
+        Optional<Product> found = inventoryService.getProduct(105);
+        assertTrue(found.isPresent());
+        assertEquals("Wireless Mouse", found.get().getName());
     }
 }

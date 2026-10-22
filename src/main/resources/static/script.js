@@ -13,6 +13,7 @@ const LOW_STOCK_THRESHOLD = 5;
 document.addEventListener("DOMContentLoaded", () => {
     fetchAllProducts();
     fetchStockMovements();
+    fetchWeatherAdvisories();
 });
 
 // --------------------------------------------------------------------------
@@ -1915,6 +1916,29 @@ function renderSmartRestocking() {
     if (kpiTotalUnits) kpiTotalUnits.textContent = totalSuggestedUnits;
     if (countTag) countTag.textContent = `${candidates.length} ${candidates.length === 1 ? 'item' : 'items'}`;
 
+    // Update Weather Risk alert banner in Smart Restocking
+    const restockWeatherAlertEl = document.getElementById("restockWeatherAlert");
+    if (restockWeatherAlertEl) {
+        if (currentWeatherReport && currentWeatherReport.hasAdverseWeather) {
+            const topAdvisory = currentWeatherReport.advisories.find(a => a.severity === "HIGH" || a.severity === "WARNING") || currentWeatherReport.advisories[0];
+            restockWeatherAlertEl.style.display = "flex";
+            restockWeatherAlertEl.innerHTML = `
+                <div class="restock-weather-alert-content">
+                    <span style="font-size: 18px;">⚠️</span>
+                    <div>
+                        <strong>Weather Planning Consideration:</strong> ${escapeXml(topAdvisory.title)} (${escapeXml(topAdvisory.severity)}).
+                        Adverse weather at the warehouse hub overlaps the replenishment planning horizon. Review carrier dispatch and dock readiness.
+                    </div>
+                </div>
+                <button type="button" class="restock-weather-alert-btn" onclick="scrollToWeatherRisk()">
+                    View Weather Risk Advisories ↘
+                </button>
+            `;
+        } else {
+            restockWeatherAlertEl.style.display = "none";
+        }
+    }
+
     if (candidates.length === 0) {
         tableContainer.innerHTML = `
             <div class="table-empty-state">
@@ -1953,10 +1977,14 @@ function renderSmartRestocking() {
             ? `<span class="urgency-badge badge-urgency-critical">🚨 CRITICAL</span>`
             : `<span class="urgency-badge badge-urgency-high">⚠️ HIGH</span>`;
 
+        const weatherChip = (currentWeatherReport && currentWeatherReport.hasAdverseWeather && c.quantity === 0)
+            ? `<span class="badge-weather-warning" title="Adverse weather at distribution hub may compound stockout replenishment duration">🌦️ Weather Risk</span>`
+            : '';
+
         html += `
             <tr id="restock-row-${c.id}" class="${isSelected ? 'selected-candidate' : ''}">
                 <td>#${c.id}</td>
-                <td><strong>${escapeXml(c.name)}</strong></td>
+                <td><strong>${escapeXml(c.name)}</strong>${weatherChip}</td>
                 <td>${escapeXml(c.category)}</td>
                 <td style="text-align: right; font-weight: 700; color: ${c.quantity === 0 ? 'var(--danger)' : 'var(--warning)'};">${c.quantity}</td>
                 <td>${urgencyBadge}</td>
@@ -2282,6 +2310,307 @@ async function confirmSimulatedReceipt(productId, supplierName) {
 
 function scrollToSmartRestocking() {
     const section = document.getElementById("smartRestockingSection");
+    if (section) {
+        section.scrollIntoView({ behavior: "smooth" });
+    }
+}
+
+// ==========================================================================
+// Milestone 4: Weather-Aware Inventory Operations & Risk Advisories
+// ==========================================================================
+
+let currentWeatherReport = null;
+
+async function fetchWeatherAdvisories(forceRefresh = false) {
+    const container = document.getElementById("weatherAdvisoriesContainer");
+    const refreshBtn = document.getElementById("btnRefreshWeather");
+    const refreshText = document.getElementById("weatherRefreshBtnText");
+    const horizonSelect = document.getElementById("weatherHorizonSelect");
+
+    const horizon = horizonSelect ? parseInt(horizonSelect.value, 10) : 48;
+
+    if (refreshBtn) refreshBtn.disabled = true;
+    if (refreshText) refreshText.textContent = "🔄 Refreshing...";
+
+    if (!currentWeatherReport && container) {
+        container.innerHTML = `
+            <div class="table-loading">
+                <span class="supplier-spinner">🔄</span>
+                <span>Querying Open-Meteo forecast telemetry and evaluating operational rules via SOAP GetWeatherAdvisories...</span>
+            </div>
+        `;
+    }
+
+    const soapPayload = `<inv:GetWeatherAdvisoriesRequest>
+        <inv:maxHorizonHours>${horizon}</inv:maxHorizonHours>
+    </inv:GetWeatherAdvisoriesRequest>`;
+
+    try {
+        const result = await callSoapService("getWeatherAdvisories", soapPayload);
+
+        if (!result.ok || !result.xmlDoc) {
+            const errorMsg = result.fault || "Unable to retrieve meteorological advisories via SOAP /ws.";
+            renderWeatherError(errorMsg);
+            return;
+        }
+
+        const respNode = getXmlNode(result.xmlDoc, "GetWeatherAdvisoriesResponse");
+        if (!respNode) {
+            renderWeatherError("GetWeatherAdvisoriesResponse node missing in SOAP response.");
+            return;
+        }
+
+        const location = getXmlValue(respNode, "location") || "Warehouse Hub";
+        const latStr = getXmlValue(respNode, "latitude");
+        const lonStr = getXmlValue(respNode, "longitude");
+        const latitude = latStr ? parseFloat(latStr) : 19.0760;
+        const longitude = lonStr ? parseFloat(lonStr) : 72.8777;
+        const retrievalTime = getXmlValue(respNode, "retrievalTime") || "Just now";
+        const forecastHorizonHours = parseInt(getXmlValue(respNode, "forecastHorizonHours") || "48", 10);
+        const status = getXmlValue(respNode, "status") || "OK";
+
+        const currentWeathNode = getXmlNode(respNode, "currentWeather");
+        let currentWeather = {
+            temperature: 0.0,
+            windSpeed: 0.0,
+            condition: "Normal",
+            status: "OK"
+        };
+        if (currentWeathNode) {
+            const tempVal = getXmlValue(currentWeathNode, "temperature");
+            const windVal = getXmlValue(currentWeathNode, "windSpeed");
+            currentWeather.temperature = tempVal ? parseFloat(tempVal) : 0.0;
+            currentWeather.windSpeed = windVal ? parseFloat(windVal) : 0.0;
+            currentWeather.condition = getXmlValue(currentWeathNode, "weatherCondition") || "Fair";
+            currentWeather.status = getXmlValue(currentWeathNode, "status") || "OK";
+        }
+
+        // Parse advisories
+        const advisoryNodes = respNode.getElementsByTagName("advisories");
+        const advisories = [];
+        for (let i = 0; i < advisoryNodes.length; i++) {
+            const advNode = advisoryNodes[i];
+            advisories.push({
+                id: getXmlValue(advNode, "id"),
+                severity: getXmlValue(advNode, "severity") || "INFO",
+                title: getXmlValue(advNode, "title") || "Weather Advisory",
+                description: getXmlValue(advNode, "description") || "",
+                expectedTime: getXmlValue(advNode, "expectedTime") || "",
+                triggerConditions: getXmlValue(advNode, "triggerConditions") || "",
+                recommendedAction: getXmlValue(advNode, "recommendedAction") || "",
+                disclaimer: getXmlValue(advNode, "disclaimer") || "Forecast-based operational advisory; not confirmation of road closures or transport disruptions."
+            });
+        }
+
+        const hasAdverseWeather = advisories.some(a => a.severity === "HIGH" || a.severity === "WARNING");
+
+        currentWeatherReport = {
+            location,
+            latitude,
+            longitude,
+            retrievalTime,
+            forecastHorizonHours,
+            status,
+            currentWeather,
+            advisories,
+            hasAdverseWeather
+        };
+
+        renderWeatherRiskSection(currentWeatherReport);
+        renderSmartRestocking();
+
+    } catch (err) {
+        console.error("Error fetching weather advisories:", err);
+        renderWeatherError(err.message);
+    } finally {
+        if (refreshBtn) refreshBtn.disabled = false;
+        if (refreshText) refreshText.textContent = "🔄 Refresh Forecast";
+    }
+}
+
+function renderWeatherRiskSection(report) {
+    if (!report) return;
+
+    // 1. Warehouse Details
+    const hubName = document.getElementById("weatherHubName");
+    const hubCoords = document.getElementById("weatherHubCoords");
+    const hubRetrieval = document.getElementById("weatherRetrievalTime");
+    if (hubName) hubName.textContent = report.location;
+    if (hubCoords) hubCoords.textContent = `${report.latitude.toFixed(4)}° N, ${report.longitude.toFixed(4)}° E • Operational Hub`;
+    if (hubRetrieval) hubRetrieval.textContent = `Telemetry Updated: ${report.retrievalTime}`;
+
+    // 2. Current Conditions
+    const currentTemp = document.getElementById("weatherCurrentTemp");
+    const currentCond = document.getElementById("weatherCurrentCondition");
+    const currentWind = document.getElementById("weatherCurrentWind");
+    const currentIcon = document.getElementById("weatherCurrentIcon");
+
+    if (currentTemp) currentTemp.textContent = `${report.currentWeather.temperature.toFixed(1)} °C`;
+    if (currentCond) currentCond.textContent = report.currentWeather.condition;
+    if (currentWind) currentWind.textContent = `Wind: ${report.currentWeather.windSpeed.toFixed(1)} km/h`;
+
+    if (currentIcon) {
+        const cond = report.currentWeather.condition.toLowerCase();
+        if (cond.includes("thunder") || cond.includes("storm")) {
+            currentIcon.textContent = "⛈️";
+        } else if (cond.includes("rain") || cond.includes("drizzle") || cond.includes("shower")) {
+            currentIcon.textContent = "🌧️";
+        } else if (cond.includes("snow")) {
+            currentIcon.textContent = "🌨️";
+        } else if (cond.includes("cloud") || cond.includes("overcast")) {
+            currentIcon.textContent = "⛅";
+        } else if (cond.includes("fog")) {
+            currentIcon.textContent = "🌫️";
+        } else {
+            currentIcon.textContent = "☀️";
+        }
+    }
+
+    // 3. Advisory Status & Overall Risk Level
+    const riskLevel = document.getElementById("weatherAdvisoryRiskLevel");
+    const riskSummary = document.getElementById("weatherAdvisoryRiskSummary");
+    const riskIcon = document.getElementById("weatherRiskLevelIcon");
+    const cacheIndicator = document.getElementById("weatherCacheIndicator");
+
+    const highCount = report.advisories.filter(a => a.severity === "HIGH").length;
+    const warnCount = report.advisories.filter(a => a.severity === "WARNING").length;
+
+    if (riskLevel && riskSummary && riskIcon) {
+        riskLevel.className = "weather-risk-level";
+        if (highCount > 0) {
+            riskLevel.textContent = "HIGH RISK ALERT";
+            riskLevel.classList.add("level-high");
+            riskSummary.textContent = `${highCount} high-severity risk condition(s) detected across ${report.forecastHorizonHours}h forecast window.`;
+            riskIcon.textContent = "🚨";
+        } else if (warnCount > 0) {
+            riskLevel.textContent = "MODERATE CAUTION";
+            riskLevel.classList.add("level-warning");
+            riskSummary.textContent = `${warnCount} operational weather warning(s) active across ${report.forecastHorizonHours}h horizon.`;
+            riskIcon.textContent = "⚠️";
+        } else {
+            riskLevel.textContent = "NORMAL OPERATIONS";
+            riskLevel.classList.add("level-safe");
+            riskSummary.textContent = `No adverse weather conditions detected in next ${report.forecastHorizonHours} hours. Standard staging applies.`;
+            riskIcon.textContent = "🛡️";
+        }
+    }
+
+    if (cacheIndicator) {
+        const isOffline = report.status.toLowerCase().includes("unavailable");
+        cacheIndicator.textContent = isOffline ? "Service: Degraded / Fallback Mode" : "Status: Active Forecast Telemetry";
+        cacheIndicator.style.color = isOffline ? "var(--danger)" : "var(--text-muted)";
+    }
+
+    // 4. Render Advisories List
+    const container = document.getElementById("weatherAdvisoriesContainer");
+    if (!container) return;
+
+    if (report.advisories.length === 0) {
+        container.innerHTML = `
+            <div class="advisory-card advisory-card-info">
+                <div class="advisory-header-row">
+                    <div class="advisory-title-group">
+                        <span class="advisory-severity-badge advisory-badge-info">ℹ️ INFORMATIONAL</span>
+                        <h3 class="advisory-title">No Active Weather Advisories</h3>
+                    </div>
+                    <span class="advisory-time-pill">Horizon: Next ${report.forecastHorizonHours} Hours</span>
+                </div>
+                <p class="advisory-desc">Meteorological model reports clear parameters within standard operational limits. No special staging protocols required.</p>
+                <div class="advisory-action-box">
+                    <div class="advisory-action-header">✔ Recommended Action</div>
+                    <div class="advisory-action-text">Standard warehousing, inventory replenishment, and dock receiving operations remain in effect.</div>
+                </div>
+                <div class="advisory-disclaimer-note">Forecast-based operational advisory; not confirmation of road closures or transport disruptions.</div>
+            </div>
+        `;
+        return;
+    }
+
+    let cardsHtml = "";
+    report.advisories.forEach(adv => {
+        let cardClass = "advisory-card-info";
+        let badgeClass = "advisory-badge-info";
+        let badgeIcon = "ℹ️";
+
+        if (adv.severity === "HIGH") {
+            cardClass = "advisory-card-high";
+            badgeClass = "advisory-badge-high";
+            badgeIcon = "🚨";
+        } else if (adv.severity === "WARNING") {
+            cardClass = "advisory-card-warning";
+            badgeClass = "advisory-badge-warning";
+            badgeIcon = "⚠️";
+        }
+
+        cardsHtml += `
+            <div class="advisory-card ${cardClass}" id="advisory-${escapeXml(adv.id)}">
+                <div class="advisory-header-row">
+                    <div class="advisory-title-group">
+                        <span class="advisory-severity-badge ${badgeClass}">${badgeIcon} ${escapeXml(adv.severity)}</span>
+                        <h3 class="advisory-title">${escapeXml(adv.title)}</h3>
+                    </div>
+                    <span class="advisory-time-pill">⏰ Period: ${escapeXml(adv.expectedTime)}</span>
+                </div>
+
+                <p class="advisory-desc">${escapeXml(adv.description)}</p>
+
+                ${adv.triggerConditions ? `
+                <div class="advisory-metrics-box">
+                    <span class="advisory-metrics-label">Trigger Telemetry:</span>
+                    <span class="advisory-metrics-val">${escapeXml(adv.triggerConditions)}</span>
+                </div>
+                ` : ''}
+
+                <div class="advisory-action-box">
+                    <div class="advisory-action-header">📋 Recommended Operational Action</div>
+                    <div class="advisory-action-text">${escapeXml(adv.recommendedAction)}</div>
+                </div>
+
+                <div class="advisory-disclaimer-note">
+                    ℹ️ ${escapeXml(adv.disclaimer)}
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = cardsHtml;
+}
+
+function renderWeatherError(errorMessage) {
+    const container = document.getElementById("weatherAdvisoriesContainer");
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="weather-error-state">
+            <div class="weather-state-icon">⚠️</div>
+            <h3>Weather Forecast Service Temporarily Unavailable</h3>
+            <p>Unable to retrieve forecast telemetry from Open-Meteo API (${escapeXml(errorMessage)}). Operational weather risk cannot currently be refreshed.</p>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="fetchWeatherAdvisories(true)">
+                🔄 Retry Meteorological Connection
+            </button>
+        </div>
+    `;
+
+    const riskLevel = document.getElementById("weatherAdvisoryRiskLevel");
+    const riskSummary = document.getElementById("weatherAdvisoryRiskSummary");
+    const cacheIndicator = document.getElementById("weatherCacheIndicator");
+    if (riskLevel) {
+        riskLevel.textContent = "SERVICE UNAVAILABLE";
+        riskLevel.className = "weather-risk-level level-warning";
+    }
+    if (riskSummary) riskSummary.textContent = "Live forecast connection unavailable. Existing inventory workflows remain operational.";
+    if (cacheIndicator) {
+        cacheIndicator.textContent = "Status: API Connection Offline";
+        cacheIndicator.style.color = "var(--danger)";
+    }
+}
+
+function onWeatherHorizonChange() {
+    fetchWeatherAdvisories(false);
+}
+
+function scrollToWeatherRisk() {
+    const section = document.getElementById("weatherRiskSection");
     if (section) {
         section.scrollIntoView({ behavior: "smooth" });
     }

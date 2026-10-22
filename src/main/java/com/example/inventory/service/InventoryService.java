@@ -7,11 +7,16 @@ import com.example.inventory.dto.CurrencyInfoDto;
 import com.example.inventory.dto.ProductExternalInfoDto;
 import com.example.inventory.dto.SupplierAvailabilityDto;
 import com.example.inventory.dto.WeatherInfoDto;
+import com.example.inventory.dto.WarehouseForecastReportDto;
+import com.example.inventory.dto.WeatherAdvisoryDto;
 import com.example.inventory.entity.ProductEntity;
 import com.example.inventory.entity.StockMovementEntity;
 import com.example.inventory.generated.AdjustStockResponse;
+import com.example.inventory.generated.GetWeatherAdvisoriesResponse;
 import com.example.inventory.generated.Product;
 import com.example.inventory.generated.StockMovement;
+import com.example.inventory.generated.WeatherAdvisory;
+import com.example.inventory.generated.WeatherInfo;
 import com.example.inventory.repository.ProductRepository;
 import com.example.inventory.repository.StockMovementRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +26,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -379,6 +385,140 @@ public class InventoryService {
                 .map(this::calculateRestockRecommendation)
                 .filter(com.example.inventory.dto.RestockRecommendationDto::isCandidate)
                 .toList();
+    }
+
+    // --------------------------------------------------------------------------
+    // Milestone 4: Weather-Aware Inventory Operations & Risk Advisories
+    // --------------------------------------------------------------------------
+    public GetWeatherAdvisoriesResponse getWeatherAdvisories(Integer maxHorizonHours, boolean forceRefresh) {
+        int horizon = (maxHorizonHours != null && maxHorizonHours > 0) ? Math.min(maxHorizonHours, 48) : 48;
+
+        WarehouseForecastReportDto reportDto;
+        if (openMeteoClient != null) {
+            reportDto = openMeteoClient.getWarehouseForecastAndAdvisories(horizon, forceRefresh);
+        } else {
+            List<WeatherAdvisoryDto> fallback = new ArrayList<>();
+            fallback.add(new WeatherAdvisoryDto(
+                    "ADV-METEO-UNCONF",
+                    "INFO",
+                    "Weather Integration Unconfigured",
+                    "Open-Meteo client is currently unconfigured or unavailable.",
+                    "Next " + horizon + " Hours",
+                    "Client bean is null",
+                    "Verify Open-Meteo client configuration.",
+                    "Operational advisory indication only."
+            ));
+            reportDto = new WarehouseForecastReportDto(
+                    "Warehouse Hub",
+                    0.0,
+                    0.0,
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                    horizon,
+                    0.0,
+                    0.0,
+                    "Unknown",
+                    "UNAVAILABLE: Open-Meteo client unconfigured",
+                    fallback
+            );
+        }
+
+        GetWeatherAdvisoriesResponse response = new GetWeatherAdvisoriesResponse();
+        response.setLocation(reportDto.getLocation());
+        response.setLatitude(reportDto.getLatitude());
+        response.setLongitude(reportDto.getLongitude());
+        response.setRetrievalTime(reportDto.getRetrievalTime());
+        response.setForecastHorizonHours(reportDto.getForecastHorizonHours());
+        response.setStatus(reportDto.getStatus());
+
+        WeatherInfo wInfo = new WeatherInfo();
+        wInfo.setLocation(reportDto.getLocation());
+        wInfo.setTemperature(reportDto.getCurrentTemperature());
+        wInfo.setWindSpeed(reportDto.getCurrentWindSpeed());
+        wInfo.setWeatherCondition(reportDto.getCurrentCondition());
+        wInfo.setStatus(reportDto.getStatus());
+        response.setCurrentWeather(wInfo);
+
+        List<WeatherAdvisoryDto> advisoryList = new ArrayList<>();
+        if (reportDto.getAdvisories() != null) {
+            advisoryList.addAll(reportDto.getAdvisories());
+        }
+
+        // Check if adverse weather is active (WARNING or HIGH severity)
+        boolean hasAdverseWeather = advisoryList.stream()
+                .anyMatch(a -> "HIGH".equalsIgnoreCase(a.getSeverity()) || "WARNING".equalsIgnoreCase(a.getSeverity()));
+
+        // Connect weather information to inventory status in a restrained, explainable manner
+        if (hasAdverseWeather && productRepository != null) {
+            List<ProductEntity> allProducts = productRepository.findAll();
+
+            List<ProductEntity> outOfStock = allProducts.stream()
+                    .filter(p -> p.getQuantity() != null && p.getQuantity() == 0)
+                    .toList();
+
+            List<ProductEntity> lowStock = allProducts.stream()
+                    .filter(p -> p.getQuantity() != null && p.getQuantity() > 0 && p.getQuantity() < DEFAULT_LOW_STOCK_THRESHOLD)
+                    .toList();
+
+            if (!outOfStock.isEmpty()) {
+                String productSample = outOfStock.stream()
+                        .map(p -> p.getName() + " (#" + p.getId() + ")")
+                        .limit(3)
+                        .reduce((a, b) -> a + ", " + b)
+                        .orElse("");
+                if (outOfStock.size() > 3) {
+                    productSample += " and " + (outOfStock.size() - 3) + " more";
+                }
+
+                advisoryList.add(new WeatherAdvisoryDto(
+                        "ADV-INV-OUT-OF-STOCK",
+                        "HIGH",
+                        "Urgent Stockout Replenishment Advisory (Adverse Weather Overlap)",
+                        "Product-specific planning consideration: Warehouse has " + outOfStock.size() +
+                                " out-of-stock product(s) (" + productSample + "). Active adverse weather at the warehouse hub may impair inbound carrier transit or external yard offloading, compounding stockout duration.",
+                        "Forecast Window (" + horizon + "h)",
+                        "Adverse weather advisory active coinciding with " + outOfStock.size() + " out-of-stock product(s)",
+                        "Prioritize supplier dispatch confirmation and schedule covered dock unloading windows immediately.",
+                        "Forecast-based operational advisory; not a confirmation of carrier delay or road disruption."
+                ));
+            } else if (!lowStock.isEmpty()) {
+                advisoryList.add(new WeatherAdvisoryDto(
+                        "ADV-INV-REPLENISH-TIMING",
+                        "WARNING",
+                        "Replenishment Timing Consideration (Adverse Weather Overlap)",
+                        "Product-specific planning consideration: " + lowStock.size() +
+                                " product(s) currently require restocking. Adverse weather at the warehouse hub may cause transit or receiving bottlenecks.",
+                        "Forecast Window (" + horizon + "h)",
+                        "Adverse weather advisory active coinciding with " + lowStock.size() + " replenishment candidate(s)",
+                        "Review supplier lead times and order timing so inbound deliveries do not coincide with peak adverse weather windows.",
+                        "Forecast-based operational advisory; not a confirmation of carrier delay or road disruption."
+                ));
+            }
+        }
+
+        // Sort advisories: HIGH -> WARNING -> INFO
+        advisoryList.sort((a, b) -> Integer.compare(getSeverityScore(b.getSeverity()), getSeverityScore(a.getSeverity())));
+
+        for (WeatherAdvisoryDto advDto : advisoryList) {
+            WeatherAdvisory advisory = new WeatherAdvisory();
+            advisory.setId(advDto.getId());
+            advisory.setSeverity(advDto.getSeverity());
+            advisory.setTitle(advDto.getTitle());
+            advisory.setDescription(advDto.getDescription());
+            advisory.setExpectedTime(advDto.getExpectedTime());
+            advisory.setTriggerConditions(advDto.getTriggerConditions());
+            advisory.setRecommendedAction(advDto.getRecommendedAction());
+            advisory.setDisclaimer(advDto.getDisclaimer());
+            response.getAdvisories().add(advisory);
+        }
+
+        return response;
+    }
+
+    private int getSeverityScore(String severity) {
+        if ("HIGH".equalsIgnoreCase(severity)) return 3;
+        if ("WARNING".equalsIgnoreCase(severity)) return 2;
+        if ("INFO".equalsIgnoreCase(severity)) return 1;
+        return 0;
     }
 
     private ProductEntity toEntity(Product product) {

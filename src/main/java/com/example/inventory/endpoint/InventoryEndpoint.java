@@ -19,6 +19,8 @@ import com.example.inventory.generated.GetProductRequest;
 import com.example.inventory.generated.GetProductResponse;
 import com.example.inventory.generated.GetStockMovementsRequest;
 import com.example.inventory.generated.GetStockMovementsResponse;
+import com.example.inventory.generated.GetWeatherAdvisoriesRequest;
+import com.example.inventory.generated.GetWeatherAdvisoriesResponse;
 import com.example.inventory.generated.Product;
 import com.example.inventory.generated.StockMovement;
 import com.example.inventory.generated.SupplierInfo;
@@ -218,5 +220,12 @@ public class InventoryEndpoint {
         }
 
         return response;
+    }
+
+    @PayloadRoot(namespace = NAMESPACE, localPart = "GetWeatherAdvisoriesRequest")
+    @ResponsePayload
+    public GetWeatherAdvisoriesResponse getWeatherAdvisories(@RequestPayload GetWeatherAdvisoriesRequest request) {
+        Integer horizon = (request != null) ? request.getMaxHorizonHours() : null;
+        return inventoryService.getWeatherAdvisories(horizon, false);
     }
 }
