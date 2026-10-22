@@ -68,30 +68,59 @@ public class InventoryEndpoint {
     @PayloadRoot(namespace = NAMESPACE, localPart = "AdjustStockRequest")
     @ResponsePayload
     public AdjustStockResponse adjustStock(@RequestPayload AdjustStockRequest request) {
-        return inventoryService.adjustStock(
-                request.getProductId(),
-                request.getQuantityChange(),
-                request.getTargetQuantity(),
-                request.getReason(),
-                request.getReference()
-        );
+        if (request == null) {
+            AdjustStockResponse response = new AdjustStockResponse();
+            response.setSuccess(false);
+            response.setMessage("Invalid request: AdjustStockRequest cannot be null");
+            return response;
+        }
+
+        try {
+            return inventoryService.adjustStock(
+                    request.getProductId(),
+                    request.getQuantityChange(),
+                    request.getTargetQuantity(),
+                    request.getReason(),
+                    request.getReference()
+            );
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException e) {
+            AdjustStockResponse response = new AdjustStockResponse();
+            response.setSuccess(false);
+            response.setMessage("Concurrency conflict: Product was modified by another transaction. Please refresh and retry.");
+            response.setProductId(request.getProductId());
+            return response;
+        } catch (Exception e) {
+            AdjustStockResponse response = new AdjustStockResponse();
+            response.setSuccess(false);
+            response.setMessage("Adjustment failed due to an unexpected server error");
+            response.setProductId(request.getProductId());
+            return response;
+        }
     }
 
     @PayloadRoot(namespace = NAMESPACE, localPart = "AddProductRequest")
     @ResponsePayload
     public AddProductResponse addProduct(@RequestPayload AddProductRequest request) {
+        AddProductResponse response = new AddProductResponse();
+        if (request == null || request.getProduct() == null) {
+            response.setSuccess(false);
+            response.setMessage("Invalid request: Product details must be provided");
+            return response;
+        }
 
         Product product = request.getProduct();
-
-        boolean added = inventoryService.addProduct(product);
-
-        AddProductResponse response = new AddProductResponse();
-        response.setSuccess(added);
-        response.setMessage(
-                added
-                        ? "Product added successfully"
-                        : "Product with ID " + product.getId() + " already exists"
-        );
+        try {
+            boolean added = inventoryService.addProduct(product);
+            response.setSuccess(added);
+            response.setMessage(
+                    added
+                            ? "Product added successfully"
+                            : "Product with ID " + product.getId() + " already exists"
+            );
+        } catch (Exception e) {
+            response.setSuccess(false);
+            response.setMessage("Failed to add product due to an unexpected server error");
+        }
 
         return response;
     }
@@ -99,60 +128,84 @@ public class InventoryEndpoint {
     @PayloadRoot(namespace = NAMESPACE, localPart = "GetProductRequest")
     @ResponsePayload
     public GetProductResponse getProduct(@RequestPayload GetProductRequest request) {
-
         GetProductResponse response = new GetProductResponse();
+        if (request == null) {
+            response.setSuccess(false);
+            response.setMessage("Invalid request: GetProductRequest cannot be null");
+            return response;
+        }
 
-        inventoryService.getProduct(request.getId()).ifPresentOrElse(
-                product -> {
-                    response.setSuccess(true);
-                    response.setMessage("Product found successfully");
-                    response.setProduct(product);
-                },
-                () -> {
-                    response.setSuccess(false);
-                    response.setMessage(
-                            "Product with ID " + request.getId() + " not found"
-                    );
-                }
-        );
+        try {
+            inventoryService.getProduct(request.getId()).ifPresentOrElse(
+                    product -> {
+                        response.setSuccess(true);
+                        response.setMessage("Product found successfully");
+                        response.setProduct(product);
+                    },
+                    () -> {
+                        response.setSuccess(false);
+                        response.setMessage(
+                                "Product with ID " + request.getId() + " not found"
+                        );
+                    }
+            );
+        } catch (Exception e) {
+            response.setSuccess(false);
+            response.setMessage("Failed to retrieve product due to an unexpected server error");
+        }
 
         return response;
     }
 
     @PayloadRoot(namespace = NAMESPACE, localPart = "UpdateProductRequest")
     @ResponsePayload
-    public UpdateProductResponse updateProduct(
-            @RequestPayload UpdateProductRequest request) {
+    public UpdateProductResponse updateProduct(@RequestPayload UpdateProductRequest request) {
+        UpdateProductResponse response = new UpdateProductResponse();
+        if (request == null || request.getProduct() == null) {
+            response.setSuccess(false);
+            response.setMessage("Invalid request: Product details must be provided");
+            return response;
+        }
 
         Product product = request.getProduct();
-
-        boolean updated = inventoryService.updateProduct(product);
-
-        UpdateProductResponse response = new UpdateProductResponse();
-        response.setSuccess(updated);
-        response.setMessage(
-                updated
-                        ? "Product updated successfully"
-                        : "Product with ID " + product.getId() + " not found"
-        );
+        try {
+            boolean updated = inventoryService.updateProduct(product);
+            response.setSuccess(updated);
+            response.setMessage(
+                    updated
+                            ? "Product updated successfully"
+                            : "Product with ID " + product.getId() + " not found or concurrent modification detected"
+            );
+        } catch (Exception e) {
+            response.setSuccess(false);
+            response.setMessage("Failed to update product due to an unexpected server error");
+        }
 
         return response;
     }
 
     @PayloadRoot(namespace = NAMESPACE, localPart = "DeleteProductRequest")
     @ResponsePayload
-    public DeleteProductResponse deleteProduct(
-            @RequestPayload DeleteProductRequest request) {
-
-        boolean deleted = inventoryService.deleteProduct(request.getId());
-
+    public DeleteProductResponse deleteProduct(@RequestPayload DeleteProductRequest request) {
         DeleteProductResponse response = new DeleteProductResponse();
-        response.setSuccess(deleted);
-        response.setMessage(
-                deleted
-                        ? "Product deleted successfully"
-                        : "Product with ID " + request.getId() + " not found"
-        );
+        if (request == null) {
+            response.setSuccess(false);
+            response.setMessage("Invalid request: DeleteProductRequest cannot be null");
+            return response;
+        }
+
+        try {
+            boolean deleted = inventoryService.deleteProduct(request.getId());
+            response.setSuccess(deleted);
+            response.setMessage(
+                    deleted
+                            ? "Product deleted successfully"
+                            : "Product with ID " + request.getId() + " not found"
+            );
+        } catch (Exception e) {
+            response.setSuccess(false);
+            response.setMessage("Failed to delete product due to an unexpected server error");
+        }
 
         return response;
     }
