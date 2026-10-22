@@ -3,6 +3,7 @@ package com.example.inventory.entity;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "products")
@@ -19,6 +20,9 @@ public class ProductEntity {
 
     private String category;
 
+    @Version
+    private Long version;
+
     public ProductEntity() {
     }
 
@@ -28,6 +32,11 @@ public class ProductEntity {
         this.quantity = quantity;
         this.price = price;
         this.category = category;
+    }
+
+    public ProductEntity(Integer id, String name, Integer quantity, Double price, String category, Long version) {
+        this(id, name, quantity, price, category);
+        this.version = version;
     }
 
     public Integer getId() {
@@ -68,5 +77,13 @@ public class ProductEntity {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 }

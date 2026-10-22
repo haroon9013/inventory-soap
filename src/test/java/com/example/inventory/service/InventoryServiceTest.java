@@ -509,6 +509,86 @@ class InventoryServiceTest {
     }
 
     @Test
+    void testAdjustStockRejectsConflictingInputsBothProvided() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        AdjustStockResponse res = inventoryService.adjustStock(101, 5, 20, "Conflicting inputs", null);
+
+        assertFalse(res.isSuccess());
+        assertTrue(res.getMessage().contains("Cannot specify both"));
+        assertEquals(10, res.getPreviousQuantity());
+        assertEquals(10, res.getUpdatedQuantity());
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testAdjustStockRejectsNegativeTargetQuantity() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        AdjustStockResponse res = inventoryService.adjustStock(101, null, -5, "Negative target", null);
+
+        assertFalse(res.isSuccess());
+        assertTrue(res.getMessage().contains("negative"));
+        assertEquals(10, res.getPreviousQuantity());
+        assertEquals(10, res.getUpdatedQuantity());
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testAdjustStockOptimisticLockingConflictReturnsErrorResponse() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+        when(productRepository.save(any(ProductEntity.class))).thenThrow(
+                new org.springframework.orm.ObjectOptimisticLockingFailureException(ProductEntity.class, 101)
+        );
+
+        AdjustStockResponse res = inventoryService.adjustStock(101, 5, null, "Concurrent test", null);
+
+        assertFalse(res.isSuccess());
+        assertTrue(res.getMessage().contains("Concurrency conflict"));
+        assertEquals(101, res.getProductId());
+        assertEquals(10, res.getPreviousQuantity());
+        assertEquals(10, res.getUpdatedQuantity());
+    }
+
+    @Test
+    void testUpdateProductOptimisticLockingConflictReturnsFalse() {
+        when(productRepository.existsById(101)).thenReturn(true);
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+        when(productRepository.save(any(ProductEntity.class))).thenThrow(
+                new org.springframework.orm.ObjectOptimisticLockingFailureException(ProductEntity.class, 101)
+        );
+
+        Product update = createProduct(101, "Laptop Pro", 15, 60000.0, "Electronics");
+        boolean updated = inventoryService.updateProduct(update);
+
+        assertFalse(updated);
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testDeleteProductRecordsStockOutMovementAndDeletesEntity() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        boolean deleted = inventoryService.deleteProduct(101);
+
+        assertTrue(deleted);
+        verify(stockMovementRepository).save(argThat(m ->
+                m.getProductId() == 101 &&
+                m.getMovementType().equals("STOCK_OUT") &&
+                m.getPreviousQuantity() == 10 &&
+                m.getNewQuantity() == 0 &&
+                m.getQuantityChange() == -10 &&
+                m.getReference().equals("DELETE_PRODUCT")
+        ));
+        verify(productRepository).deleteById(101);
+    }
+
+    @Test
     void testGetStockMovementsAll() {
         StockMovementEntity m1 = new StockMovementEntity(101, "Laptop", "STOCK_IN", 0, 10, 10, "Initial", LocalDateTime.now(), "ADD");
         when(stockMovementRepository.findAllByOrderByTimestampDescIdDesc(any(Pageable.class))).thenReturn(List.of(m1));

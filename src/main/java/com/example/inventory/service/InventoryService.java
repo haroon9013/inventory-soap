@@ -19,10 +19,15 @@ import com.example.inventory.generated.WeatherAdvisory;
 import com.example.inventory.generated.WeatherInfo;
 import com.example.inventory.repository.ProductRepository;
 import com.example.inventory.repository.StockMovementRepository;
+import jakarta.persistence.OptimisticLockException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.NoTransactionException;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -74,6 +79,7 @@ public class InventoryService {
         this(productRepository, null, null, null, null);
     }
 
+    @Transactional(readOnly = true)
     public List<Product> getAllProducts() {
         return productRepository.findAll()
                 .stream()
@@ -81,6 +87,7 @@ public class InventoryService {
                 .toList();
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public boolean addProduct(Product product) {
         if (productRepository.existsById(product.getId())) {
             return false;
@@ -108,10 +115,12 @@ public class InventoryService {
         return true;
     }
 
+    @Transactional(readOnly = true)
     public Optional<Product> getProduct(int id) {
         return productRepository.findById(id).map(this::toDto);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public boolean updateProduct(Product product) {
         if (!productRepository.existsById(product.getId())) {
             return false;
@@ -126,40 +135,68 @@ public class InventoryService {
         entity.setQuantity(newQuantity);
         entity.setPrice(product.getPrice());
         entity.setCategory(product.getCategory());
-        productRepository.save(entity);
 
-        // Only record stock movement if quantity actually changed and previous quantity is known
-        if (stockMovementRepository != null && previousQuantity != null && newQuantity != previousQuantity) {
-            int change = newQuantity - previousQuantity;
-            String movementType = change > 0 ? "STOCK_IN" : "STOCK_OUT";
-            String reason = change > 0 ? "Stock increased via product update" : "Stock decreased via product update";
+        try {
+            productRepository.save(entity);
 
-            StockMovementEntity movement = new StockMovementEntity(
-                    product.getId(),
-                    product.getName(),
-                    movementType,
-                    previousQuantity,
-                    newQuantity,
-                    change,
-                    reason,
-                    LocalDateTime.now(),
-                    "UPDATE_PRODUCT"
-            );
-            stockMovementRepository.save(movement);
+            // Only record stock movement if quantity actually changed and previous quantity is known
+            if (stockMovementRepository != null && previousQuantity != null && newQuantity != previousQuantity) {
+                int change = newQuantity - previousQuantity;
+                String movementType = change > 0 ? "STOCK_IN" : "STOCK_OUT";
+                String reason = change > 0 ? "Stock increased via product update" : "Stock decreased via product update";
+
+                StockMovementEntity movement = new StockMovementEntity(
+                        product.getId(),
+                        product.getName(),
+                        movementType,
+                        previousQuantity,
+                        newQuantity,
+                        change,
+                        reason,
+                        LocalDateTime.now(),
+                        "UPDATE_PRODUCT"
+                );
+                stockMovementRepository.save(movement);
+            }
+
+            return true;
+        } catch (ObjectOptimisticLockingFailureException | OptimisticLockException e) {
+            markRollbackOnlyQuietly();
+            return false;
         }
-
-        return true;
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public boolean deleteProduct(int id) {
-        if (!productRepository.existsById(id)) {
-            return false;
+        Optional<ProductEntity> opt = productRepository.findById(id);
+        if (opt.isEmpty()) {
+            if (!productRepository.existsById(id)) {
+                return false;
+            }
+        }
+
+        if (opt.isPresent() && stockMovementRepository != null) {
+            ProductEntity entity = opt.get();
+            int previousQuantity = entity.getQuantity() != null ? entity.getQuantity() : 0;
+            StockMovementEntity movement = new StockMovementEntity(
+                    entity.getId(),
+                    entity.getName() != null ? entity.getName() : "Deleted Product",
+                    "STOCK_OUT",
+                    previousQuantity,
+                    0,
+                    -previousQuantity,
+                    "Product deleted from catalog",
+                    LocalDateTime.now(),
+                    "DELETE_PRODUCT"
+            );
+            stockMovementRepository.save(movement);
         }
 
         productRepository.deleteById(id);
         return true;
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public AdjustStockResponse adjustStock(int productId, Integer quantityChange, Integer targetQuantity, String reason, String reference) {
         Optional<ProductEntity> opt = productRepository.findById(productId);
         if (opt.isEmpty()) {
@@ -172,22 +209,47 @@ public class InventoryService {
 
         ProductEntity product = opt.get();
         int previousQuantity = product.getQuantity() != null ? product.getQuantity() : 0;
+
+        // Reject if both targetQuantity and quantityChange are provided
+        if (targetQuantity != null && quantityChange != null) {
+            AdjustStockResponse response = new AdjustStockResponse();
+            response.setSuccess(false);
+            response.setMessage("Adjustment rejected: Cannot specify both quantityChange and targetQuantity");
+            response.setProductId(productId);
+            response.setPreviousQuantity(previousQuantity);
+            response.setUpdatedQuantity(previousQuantity);
+            return response;
+        }
+
+        // Reject if neither is provided
+        if (targetQuantity == null && quantityChange == null) {
+            AdjustStockResponse response = new AdjustStockResponse();
+            response.setSuccess(false);
+            response.setMessage("Adjustment rejected: Either targetQuantity or quantityChange must be provided");
+            response.setProductId(productId);
+            response.setPreviousQuantity(previousQuantity);
+            response.setUpdatedQuantity(previousQuantity);
+            return response;
+        }
+
         int newQuantity;
         int change;
 
         if (targetQuantity != null) {
+            if (targetQuantity < 0) {
+                AdjustStockResponse response = new AdjustStockResponse();
+                response.setSuccess(false);
+                response.setMessage("Adjustment rejected: Target quantity cannot be negative (" + targetQuantity + ")");
+                response.setProductId(productId);
+                response.setPreviousQuantity(previousQuantity);
+                response.setUpdatedQuantity(previousQuantity);
+                return response;
+            }
             newQuantity = targetQuantity;
             change = newQuantity - previousQuantity;
-        } else if (quantityChange != null) {
+        } else {
             change = quantityChange;
             newQuantity = previousQuantity + change;
-        } else {
-            AdjustStockResponse response = new AdjustStockResponse();
-            response.setSuccess(false);
-            response.setMessage("Either targetQuantity or quantityChange must be provided");
-            response.setProductId(productId);
-            response.setPreviousQuantity(previousQuantity);
-            return response;
         }
 
         if (newQuantity < 0) {
@@ -201,7 +263,6 @@ public class InventoryService {
         }
 
         product.setQuantity(newQuantity);
-        productRepository.save(product);
 
         String effectiveReason = (reason != null && !reason.trim().isEmpty())
                 ? reason.trim()
@@ -223,11 +284,24 @@ public class InventoryService {
         );
 
         StockMovementEntity savedEntity = entity;
-        if (stockMovementRepository != null) {
-            StockMovementEntity persisted = stockMovementRepository.save(entity);
-            if (persisted != null) {
-                savedEntity = persisted;
+        try {
+            productRepository.save(product);
+
+            if (stockMovementRepository != null) {
+                StockMovementEntity persisted = stockMovementRepository.save(entity);
+                if (persisted != null) {
+                    savedEntity = persisted;
+                }
             }
+        } catch (ObjectOptimisticLockingFailureException | OptimisticLockException e) {
+            markRollbackOnlyQuietly();
+            AdjustStockResponse response = new AdjustStockResponse();
+            response.setSuccess(false);
+            response.setMessage("Concurrency conflict: Product was modified by another transaction. Please refresh and retry.");
+            response.setProductId(productId);
+            response.setPreviousQuantity(previousQuantity);
+            response.setUpdatedQuantity(previousQuantity);
+            return response;
         }
 
         AdjustStockResponse response = new AdjustStockResponse();
@@ -240,6 +314,7 @@ public class InventoryService {
         return response;
     }
 
+    @Transactional(readOnly = true)
     public List<StockMovement> getStockMovements(Integer productId, Integer maxRecords) {
         if (stockMovementRepository == null) {
             return Collections.emptyList();
@@ -272,6 +347,7 @@ public class InventoryService {
         );
     }
 
+    @Transactional(readOnly = true)
     public ProductExternalInfoDto getProductExternalInfo(int productId) {
         Optional<ProductEntity> entityOpt = productRepository.findById(productId);
 
@@ -380,6 +456,7 @@ public class InventoryService {
         );
     }
 
+    @Transactional(readOnly = true)
     public List<com.example.inventory.dto.RestockRecommendationDto> getRestockRecommendations() {
         return getAllProducts().stream()
                 .map(this::calculateRestockRecommendation)
@@ -390,6 +467,7 @@ public class InventoryService {
     // --------------------------------------------------------------------------
     // Milestone 4: Weather-Aware Inventory Operations & Risk Advisories
     // --------------------------------------------------------------------------
+    @Transactional(readOnly = true)
     public GetWeatherAdvisoriesResponse getWeatherAdvisories(Integer maxHorizonHours, boolean forceRefresh) {
         int horizon = (maxHorizonHours != null && maxHorizonHours > 0) ? Math.min(maxHorizonHours, 48) : 48;
 
@@ -559,5 +637,13 @@ public class InventoryService {
         dto.setTimestamp(entity.getTimestamp() != null ? entity.getTimestamp().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
         dto.setReference(entity.getReference() != null ? entity.getReference() : "");
         return dto;
+    }
+
+    private void markRollbackOnlyQuietly() {
+        try {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+        } catch (NoTransactionException ignored) {
+            // Not running in a Spring transaction context (e.g. mock unit test)
+        }
     }
 }
