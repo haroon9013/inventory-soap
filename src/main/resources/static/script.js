@@ -786,8 +786,8 @@ async function queryExternalInfo(productIdOpt) {
                 <div class="ext-card-body">
                     <div class="ext-stat-row"><span>Exchange Pair:</span> <strong>${escapeXml(baseCur)} → ${escapeXml(targetCur)}</strong></div>
                     <div class="ext-stat-row"><span>Exchange Rate:</span> <strong>${escapeXml(exRate)}</strong></div>
-                    <div class="ext-stat-row"><span>Converted Price:</span> <strong>$${convertedPrice.toLocaleString("en-US", {minimumFractionDigits: 2})} USD</strong></div>
-                    <div class="ext-stat-row"><span>Formula:</span> <code>${prodPrice} × ${exRate}</code></div>
+                    <div class="ext-stat-row"><span>Converted Price:</span> <strong>${parseFloat(exRate) > 0 ? '$' + convertedPrice.toLocaleString("en-US", {minimumFractionDigits: 2}) + ' ' + escapeXml(targetCur) : '<span style="color: var(--text-muted);">Rate Unavailable</span>'}</strong></div>
+                    <div class="ext-stat-row"><span>Formula:</span> <code>${parseFloat(exRate) > 0 ? '₹' + prodPrice + ' × ' + exRate : '<span style="color: var(--text-muted);">Conversion Offline</span>'}</code></div>
                     <div class="ext-stat-status">${escapeXml(curStatus)}</div>
                 </div>
             </div>
@@ -2123,7 +2123,7 @@ async function selectRestockCandidate(productId) {
             </div>
             <div class="quote-row">
                 <span>Supplier Unit Wholesale Price:</span>
-                <strong style="color: var(--primary);">₹${supplierPrice.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                <strong style="color: var(--primary);">${available && supplierPrice > 0 ? '₹' + supplierPrice.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '<span style="color: var(--text-muted);">N/A (Supplier Unavailable)</span>'}</strong>
             </div>
             <div class="quote-row">
                 <span>Catalog Retail Price (INR):</span>
@@ -2137,7 +2137,7 @@ async function selectRestockCandidate(productId) {
             ` : ''}
             <div class="quote-row quote-row-total">
                 <span>Estimated Total Procurement Cost (+${suggested} units):</span>
-                <span>₹${totalCost.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                <span>${available && supplierPrice > 0 ? '₹' + totalCost.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '<span style="color: var(--text-muted);">Unavailable (Supplier Inactive)</span>'}</span>
             </div>
         </div>
 

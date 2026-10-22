@@ -379,4 +379,75 @@ class OpenMeteoClientTest {
         );
         assertNotNull(customClient);
     }
+
+    @Test
+    void testPrecipitationThresholdExactBoundaries() {
+        List<String> times = Arrays.asList("2026-10-22T12:00");
+
+        // Exactly at boundary: 70% and 5.0 mm -> WARNING
+        OpenMeteoClient.OpenMeteoResponse r1 = createMockForecastResponse(25.0, 10.0, 0,
+                times, Arrays.asList(70), Arrays.asList(5.0), Arrays.asList(10.0), Arrays.asList(0));
+        WarehouseForecastReportDto report1 = openMeteoClient.evaluateAdvisories(r1, 24);
+        assertEquals(1, report1.getAdvisories().size());
+        assertEquals("ADV-PRECIP-HEAVY", report1.getAdvisories().get(0).getId());
+        assertEquals("WARNING", report1.getAdvisories().get(0).getSeverity());
+
+        // Exactly at boundary: 70% and 15.0 mm -> HIGH
+        OpenMeteoClient.OpenMeteoResponse r2 = createMockForecastResponse(25.0, 10.0, 0,
+                times, Arrays.asList(70), Arrays.asList(15.0), Arrays.asList(10.0), Arrays.asList(0));
+        WarehouseForecastReportDto report2 = openMeteoClient.evaluateAdvisories(r2, 24);
+        assertEquals("HIGH", report2.getAdvisories().get(0).getSeverity());
+
+        // Just below probability boundary: 69% and 10.0 mm -> NORMAL
+        OpenMeteoClient.OpenMeteoResponse r3 = createMockForecastResponse(25.0, 10.0, 0,
+                times, Arrays.asList(69), Arrays.asList(10.0), Arrays.asList(10.0), Arrays.asList(0));
+        WarehouseForecastReportDto report3 = openMeteoClient.evaluateAdvisories(r3, 24);
+        assertEquals("ADV-NORMAL-COND", report3.getAdvisories().get(0).getId());
+
+        // Just below precipitation boundary: 80% and 4.9 mm -> NORMAL
+        OpenMeteoClient.OpenMeteoResponse r4 = createMockForecastResponse(25.0, 10.0, 0,
+                times, Arrays.asList(80), Arrays.asList(4.9), Arrays.asList(10.0), Arrays.asList(0));
+        WarehouseForecastReportDto report4 = openMeteoClient.evaluateAdvisories(r4, 24);
+        assertEquals("ADV-NORMAL-COND", report4.getAdvisories().get(0).getId());
+    }
+
+    @Test
+    void testWindSpeedThresholdExactBoundaries() {
+        List<String> times = Arrays.asList("2026-10-22T12:00");
+
+        // Exactly at boundary: 35.0 km/h -> WARNING
+        OpenMeteoClient.OpenMeteoResponse r1 = createMockForecastResponse(25.0, 10.0, 0,
+                times, Arrays.asList(10), Arrays.asList(0.0), Arrays.asList(35.0), Arrays.asList(0));
+        WarehouseForecastReportDto report1 = openMeteoClient.evaluateAdvisories(r1, 24);
+        assertEquals(1, report1.getAdvisories().size());
+        assertEquals("ADV-WIND-HIGH", report1.getAdvisories().get(0).getId());
+        assertEquals("WARNING", report1.getAdvisories().get(0).getSeverity());
+
+        // Exactly at boundary: 50.0 km/h -> HIGH
+        OpenMeteoClient.OpenMeteoResponse r2 = createMockForecastResponse(25.0, 10.0, 0,
+                times, Arrays.asList(10), Arrays.asList(0.0), Arrays.asList(50.0), Arrays.asList(0));
+        WarehouseForecastReportDto report2 = openMeteoClient.evaluateAdvisories(r2, 24);
+        assertEquals("HIGH", report2.getAdvisories().get(0).getSeverity());
+
+        // Just below boundary: 34.9 km/h -> NORMAL
+        OpenMeteoClient.OpenMeteoResponse r3 = createMockForecastResponse(25.0, 10.0, 0,
+                times, Arrays.asList(10), Arrays.asList(0.0), Arrays.asList(34.9), Arrays.asList(0));
+        WarehouseForecastReportDto report3 = openMeteoClient.evaluateAdvisories(r3, 24);
+        assertEquals("ADV-NORMAL-COND", report3.getAdvisories().get(0).getId());
+    }
+
+    @Test
+    void testAllWeatherCodeCategoriesDecoding() {
+        assertEquals("Clear Sky", openMeteoClient.decodeWeatherCode(0));
+        assertEquals("Mainly Clear", openMeteoClient.decodeWeatherCode(1));
+        assertEquals("Partly Cloudy", openMeteoClient.decodeWeatherCode(2));
+        assertEquals("Overcast", openMeteoClient.decodeWeatherCode(3));
+        assertTrue(openMeteoClient.decodeWeatherCode(45).contains("Fog"));
+        assertTrue(openMeteoClient.decodeWeatherCode(51).contains("Drizzle"));
+        assertTrue(openMeteoClient.decodeWeatherCode(61).contains("Rain"));
+        assertTrue(openMeteoClient.decodeWeatherCode(71).contains("Snow"));
+        assertTrue(openMeteoClient.decodeWeatherCode(95).contains("Thunderstorm"));
+        assertTrue(openMeteoClient.decodeWeatherCode(96).contains("Hail"));
+        assertTrue(openMeteoClient.decodeWeatherCode(999).contains("Fair / Moderate"));
+    }
 }

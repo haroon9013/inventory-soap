@@ -116,4 +116,42 @@ class FrankfurterClientTest {
         assertTrue(result.getStatus().contains("ERROR"));
         verify(restTemplate, never()).getForObject(anyString(), any());
     }
+
+    @Test
+    void testMissingRateInResponseReturnsUnavailable() {
+        FrankfurterClient.FrankfurterResponse mockResponse = new FrankfurterClient.FrankfurterResponse();
+        mockResponse.setAmount(1.0);
+        mockResponse.setBase("INR");
+        mockResponse.setRates(new HashMap<>()); // empty rates map
+
+        when(restTemplate.getForObject(anyString(), eq(FrankfurterClient.FrankfurterResponse.class)))
+                .thenReturn(mockResponse);
+
+        CurrencyInfoDto result = frankfurterClient.convertCurrency(5000.0, "INR", "USD");
+
+        assertNotNull(result);
+        assertEquals(0.0, result.getExchangeRate());
+        assertTrue(result.getStatus().contains("UNAVAILABLE"));
+    }
+
+    @Test
+    void testMissingDateDefaultsToLatest() {
+        FrankfurterClient.FrankfurterResponse mockResponse = new FrankfurterClient.FrankfurterResponse();
+        mockResponse.setAmount(1.0);
+        mockResponse.setBase("EUR");
+        mockResponse.setDate(null); // null date
+        Map<String, Double> rates = new HashMap<>();
+        rates.put("USD", 1.10);
+        mockResponse.setRates(rates);
+
+        when(restTemplate.getForObject(anyString(), eq(FrankfurterClient.FrankfurterResponse.class)))
+                .thenReturn(mockResponse);
+
+        CurrencyInfoDto result = frankfurterClient.convertCurrency(100.0, "EUR", "USD");
+
+        assertNotNull(result);
+        assertEquals(1.10, result.getExchangeRate());
+        assertEquals(110.0, result.getConvertedPrice());
+        assertTrue(result.getStatus().contains("latest"));
+    }
 }
