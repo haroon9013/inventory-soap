@@ -58,6 +58,10 @@
                 <span class="nav-icon">📜</span>
                 <span>Stock Activity</span>
             </button>
+            <button class="nav-item" id="nav-restock" onclick="scrollToSmartRestocking()">
+                <span class="nav-icon">💡</span>
+                <span>Smart Restocking</span>
+            </button>
         </nav>
 
         <div class="sidebar-footer">
@@ -498,6 +502,78 @@
             <!-- Table Container with Loading / Empty / Data states -->
             <div class="table-responsive" id="inventoryTableContainer">
                 <!-- Dynamically populated by script.js -->
+            </div>
+        </section>
+
+        <!-- SMART RESTOCKING & SUPPLIER COST COMPARISON SECTION -->
+        <section class="card restock-card" id="smartRestockingSection">
+            <div class="restock-header">
+                <div class="restock-title-group">
+                    <div class="table-title-row">
+                        <span class="table-icon">💡</span>
+                        <h2 class="table-card-title">Smart Restocking & Supplier Analysis</h2>
+                        <span class="live-sync-badge">● Automated Recommendations</span>
+                        <span class="rule-badge">Rule-Based: Target 20 Units | Threshold &lt; 5 Units</span>
+                    </div>
+                    <p class="table-card-subtitle">Connects live database stock levels with Supplier REST availability, commercial pricing, and Frankfurter currency conversion for optimal replenishment decisions.</p>
+                </div>
+                <div class="activity-controls">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="renderSmartRestocking()">
+                        <span>🔄 Re-evaluate Recommendations</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary KPI Metrics -->
+            <div class="restock-kpi-grid">
+                <div class="restock-kpi-card kpi-warning">
+                    <div class="kpi-icon">⚠️</div>
+                    <div class="kpi-info">
+                        <div class="kpi-num" id="restockCandidatesCount">0</div>
+                        <div class="kpi-label">Replenishment Candidates (&lt; 5 stock)</div>
+                    </div>
+                </div>
+                <div class="restock-kpi-card kpi-danger">
+                    <div class="kpi-icon">🚨</div>
+                    <div class="kpi-info">
+                        <div class="kpi-num" id="restockCriticalCount">0</div>
+                        <div class="kpi-label">Critical Out-of-Stock (0 stock)</div>
+                    </div>
+                </div>
+                <div class="restock-kpi-card kpi-primary">
+                    <div class="kpi-icon">📦</div>
+                    <div class="kpi-info">
+                        <div class="kpi-num" id="restockTotalUnitsCount">0</div>
+                        <div class="kpi-label">Total Units Suggested to Target (20)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Two-Pane Layout: Candidates & Supplier Analysis -->
+            <div class="restock-content-grid">
+                <!-- Left Column: Candidates Table -->
+                <div class="restock-candidates-pane">
+                    <div class="pane-subtitle-row">
+                        <h3 class="pane-subtitle">Replenishment Candidates</h3>
+                        <span class="pane-tag" id="restockTableCountTag">0 items</span>
+                    </div>
+                    <div class="table-responsive" id="restockTableContainer">
+                        <!-- Populated by script.js -->
+                    </div>
+                </div>
+
+                <!-- Right Column: Supplier Analysis & Simulated Receipt -->
+                <div class="restock-analysis-pane" id="restockAnalysisPane">
+                    <div class="analysis-placeholder" id="restockAnalysisPlaceholder">
+                        <span class="analysis-ph-icon">🔍</span>
+                        <h4>Supplier Option & Cost Analysis</h4>
+                        <p>Select any replenishment candidate from the list to query supplier availability, evaluate fulfillment capacity, compare procurement costs, and execute simulated stock receipts.</p>
+                    </div>
+
+                    <div class="analysis-card" id="restockAnalysisCard" style="display: none;">
+                        <!-- Populated dynamically by script.js -->
+                    </div>
+                </div>
             </div>
         </section>
 

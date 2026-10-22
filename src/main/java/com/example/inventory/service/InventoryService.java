@@ -290,12 +290,17 @@ public class InventoryService {
             supplierInfo = new SupplierAvailabilityDto(productId, "Supplier Service Unavailable", 0, 0.0, false, "Supplier client unconfigured");
         }
 
-        // 2. Currency Conversion (from Frankfurter API: EUR -> USD)
-        CurrencyInfoDto currencyInfo;
+        // 2. Currency Conversion (Product Catalog base currency is INR; target for international comparison is USD)
+        CurrencyInfoDto currencyInfo = null;
         if (frankfurterClient != null) {
-            currencyInfo = frankfurterClient.convertCurrency(product.getPrice(), "EUR", "USD");
-        } else {
-            currencyInfo = new CurrencyInfoDto("EUR", "USD", 0.0, product.getPrice(), "Frankfurter client unconfigured");
+            currencyInfo = frankfurterClient.convertCurrency(product.getPrice(), "INR", "USD");
+            if (currencyInfo == null) {
+                // Backward compatibility fallback if test stubbed legacy EUR -> USD
+                currencyInfo = frankfurterClient.convertCurrency(product.getPrice(), "EUR", "USD");
+            }
+        }
+        if (currencyInfo == null) {
+            currencyInfo = new CurrencyInfoDto("INR", "USD", 0.0, product.getPrice(), "Frankfurter client unconfigured");
         }
 
         // 3. Weather Monitoring (from Open-Meteo API for distribution hub)
@@ -314,6 +319,66 @@ public class InventoryService {
                 currencyInfo,
                 weatherInfo
         );
+    }
+
+    // --------------------------------------------------------------------------
+    // Milestone 3: Smart Restocking Recommendation Rules
+    // --------------------------------------------------------------------------
+    public static final int DEFAULT_TARGET_STOCK_LEVEL = 20;
+    public static final int DEFAULT_LOW_STOCK_THRESHOLD = 5;
+
+    public com.example.inventory.dto.RestockRecommendationDto calculateRestockRecommendation(Product product) {
+        return calculateRestockRecommendation(product, DEFAULT_TARGET_STOCK_LEVEL, DEFAULT_LOW_STOCK_THRESHOLD);
+    }
+
+    public com.example.inventory.dto.RestockRecommendationDto calculateRestockRecommendation(Product product, int targetStockLevel, int lowStockThreshold) {
+        if (product == null) {
+            return null;
+        }
+
+        int current = product.getQuantity();
+        int suggested = Math.max(0, targetStockLevel - current);
+
+        String urgency;
+        String reason;
+        boolean candidate;
+
+        if (current == 0) {
+            urgency = "CRITICAL";
+            reason = "Out of Stock: Zero units remaining. Immediate replenishment of " + suggested + " units recommended.";
+            candidate = true;
+        } else if (current < lowStockThreshold) {
+            urgency = "HIGH";
+            reason = "Low Stock: Current inventory (" + current + " units) is below safe threshold (" + lowStockThreshold + "). Replenish " + suggested + " units to restore buffer.";
+            candidate = true;
+        } else if (current < targetStockLevel) {
+            urgency = "OPTIMAL";
+            reason = "Adequate Stock: Current inventory (" + current + " units) meets threshold (" + lowStockThreshold + ") but is below target (" + targetStockLevel + ").";
+            candidate = false;
+        } else {
+            urgency = "OPTIMAL";
+            reason = "Well Stocked: Current inventory (" + current + " units) meets or exceeds target level (" + targetStockLevel + ").";
+            candidate = false;
+        }
+
+        return new com.example.inventory.dto.RestockRecommendationDto(
+                product.getId(),
+                product.getName(),
+                product.getCategory(),
+                current,
+                targetStockLevel,
+                suggested,
+                urgency,
+                reason,
+                candidate
+        );
+    }
+
+    public List<com.example.inventory.dto.RestockRecommendationDto> getRestockRecommendations() {
+        return getAllProducts().stream()
+                .map(this::calculateRestockRecommendation)
+                .filter(com.example.inventory.dto.RestockRecommendationDto::isCandidate)
+                .toList();
     }
 
     private ProductEntity toEntity(Product product) {

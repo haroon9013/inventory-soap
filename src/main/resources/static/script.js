@@ -1289,8 +1289,9 @@ async function fetchAllProducts(isManualRefresh = false, operationContext = null
     const lastOpLabel = operationContext || (isManualRefresh ? "SOAP: Refresh (" + productCache.size + ")" : "Live DB Synced");
     updateStatistics(lastOpLabel);
 
-    // Render table
+    // Render table and smart restocking
     renderInventoryTable();
+    renderSmartRestocking();
 
     if (isManualRefresh) {
         showResult(`Successfully synchronized ${productCache.size} products from database via SOAP.`, "success", "SOAP: getAllProducts");
@@ -1416,6 +1417,10 @@ function renderInventoryTable() {
                     <button type="button" class="table-action-btn" title="Adjust Stock" onclick="loadProductToAdjust(${p.id})">
                         ⚖️ Adjust
                     </button>
+                    ${(isOutOfStock || isLowStock) ? `
+                    <button type="button" class="table-action-btn" title="Smart Restocking" onclick="selectRestockCandidate(${p.id})">
+                        💡 Restock
+                    </button>` : ''}
                 </td>
             </tr>
         `;
@@ -1853,6 +1858,430 @@ function clearMovementFilter() {
 
 function scrollToStockActivity() {
     const section = document.getElementById("stockActivitySection");
+    if (section) {
+        section.scrollIntoView({ behavior: "smooth" });
+    }
+}
+
+// --------------------------------------------------------------------------
+// Milestone 3: Smart Restocking & Supplier Cost Comparison Functions
+// --------------------------------------------------------------------------
+
+const RESTOCK_TARGET_STOCK = 20;
+let currentRestockSelectedProductId = null;
+
+function renderSmartRestocking() {
+    const tableContainer = document.getElementById("restockTableContainer");
+    const countTag = document.getElementById("restockTableCountTag");
+    const kpiCandidates = document.getElementById("restockCandidatesCount");
+    const kpiCritical = document.getElementById("restockCriticalCount");
+    const kpiTotalUnits = document.getElementById("restockTotalUnitsCount");
+
+    if (!tableContainer) return;
+
+    // Filter products requiring restocking (< LOW_STOCK_THRESHOLD = 5 units)
+    const allProducts = Array.from(productCache.values());
+    const candidates = allProducts
+        .filter(p => p.quantity < LOW_STOCK_THRESHOLD)
+        .map(p => {
+            const suggested = Math.max(0, RESTOCK_TARGET_STOCK - p.quantity);
+            const isZero = p.quantity === 0;
+            return {
+                id: p.id,
+                name: p.name,
+                category: p.category,
+                quantity: p.quantity,
+                price: p.price,
+                suggested: suggested,
+                urgency: isZero ? "CRITICAL" : "HIGH",
+                reason: isZero
+                    ? `Out of Stock: 0 units remaining. Critical replenishment of ${suggested} units required to reach target (${RESTOCK_TARGET_STOCK}).`
+                    : `Low Stock: Current inventory (${p.quantity}) is below safe threshold (${LOW_STOCK_THRESHOLD}). Replenish ${suggested} units to reach target (${RESTOCK_TARGET_STOCK}).`
+            };
+        })
+        .sort((a, b) => {
+            // Sort CRITICAL first, then by lowest quantity
+            if (a.urgency === "CRITICAL" && b.urgency !== "CRITICAL") return -1;
+            if (b.urgency === "CRITICAL" && a.urgency !== "CRITICAL") return 1;
+            return a.quantity - b.quantity;
+        });
+
+    // Compute metrics
+    const criticalCount = candidates.filter(c => c.urgency === "CRITICAL").length;
+    const totalSuggestedUnits = candidates.reduce((sum, c) => sum + c.suggested, 0);
+
+    if (kpiCandidates) kpiCandidates.textContent = candidates.length;
+    if (kpiCritical) kpiCritical.textContent = criticalCount;
+    if (kpiTotalUnits) kpiTotalUnits.textContent = totalSuggestedUnits;
+    if (countTag) countTag.textContent = `${candidates.length} ${candidates.length === 1 ? 'item' : 'items'}`;
+
+    if (candidates.length === 0) {
+        tableContainer.innerHTML = `
+            <div class="table-empty-state">
+                <div class="table-empty-icon">✅</div>
+                <h3 class="table-empty-title">All Products Sufficiently Stocked</h3>
+                <p class="table-empty-desc">No products are currently below the low-stock threshold (&lt; ${LOW_STOCK_THRESHOLD} units). All catalog inventory satisfies rule-based replenishment criteria.</p>
+            </div>
+        `;
+        const placeholder = document.getElementById("restockAnalysisPlaceholder");
+        const card = document.getElementById("restockAnalysisCard");
+        if (placeholder) placeholder.style.display = "flex";
+        if (card) card.style.display = "none";
+        return;
+    }
+
+    let html = `
+        <table class="restock-table">
+            <thead>
+                <tr>
+                    <th style="width: 70px;">ID</th>
+                    <th>Product</th>
+                    <th style="width: 100px;">Category</th>
+                    <th style="text-align: right; width: 80px;">Stock</th>
+                    <th style="width: 95px;">Urgency</th>
+                    <th style="text-align: center; width: 110px;">Suggested Qty</th>
+                    <th>Recommendation Reason</th>
+                    <th style="text-align: right; width: 140px;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    candidates.forEach(c => {
+        const isSelected = c.id === currentRestockSelectedProductId;
+        const urgencyBadge = c.urgency === "CRITICAL"
+            ? `<span class="urgency-badge badge-urgency-critical">🚨 CRITICAL</span>`
+            : `<span class="urgency-badge badge-urgency-high">⚠️ HIGH</span>`;
+
+        html += `
+            <tr id="restock-row-${c.id}" class="${isSelected ? 'selected-candidate' : ''}">
+                <td>#${c.id}</td>
+                <td><strong>${escapeXml(c.name)}</strong></td>
+                <td>${escapeXml(c.category)}</td>
+                <td style="text-align: right; font-weight: 700; color: ${c.quantity === 0 ? 'var(--danger)' : 'var(--warning)'};">${c.quantity}</td>
+                <td>${urgencyBadge}</td>
+                <td style="text-align: center;"><span class="suggested-qty-pill">+${c.suggested}</span></td>
+                <td style="font-size: 12px; color: var(--text-secondary); max-width: 220px;" title="${escapeXml(c.reason)}">${escapeXml(c.reason)}</td>
+                <td style="text-align: right;">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="selectRestockCandidate(${c.id})">
+                        🔍 Inspect Supplier
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+            </tbody>
+        </table>
+    `;
+
+    tableContainer.innerHTML = html;
+
+    // If an active selection still exists in candidates, re-render it; else reset placeholder
+    if (currentRestockSelectedProductId) {
+        const stillCandidate = candidates.find(c => c.id === currentRestockSelectedProductId);
+        if (!stillCandidate) {
+            currentRestockSelectedProductId = null;
+            const placeholder = document.getElementById("restockAnalysisPlaceholder");
+            const card = document.getElementById("restockAnalysisCard");
+            if (placeholder) placeholder.style.display = "flex";
+            if (card) card.style.display = "none";
+        }
+    }
+}
+
+async function selectRestockCandidate(productId) {
+    const product = productCache.get(productId);
+    if (!product) return;
+
+    currentRestockSelectedProductId = productId;
+
+    // Highlight row in candidate table
+    document.querySelectorAll(".restock-table tr").forEach(row => row.classList.remove("selected-candidate"));
+    const selectedRow = document.getElementById("restock-row-" + productId);
+    if (selectedRow) selectedRow.classList.add("selected-candidate");
+
+    const placeholder = document.getElementById("restockAnalysisPlaceholder");
+    const card = document.getElementById("restockAnalysisCard");
+
+    if (placeholder) placeholder.style.display = "none";
+    if (card) {
+        card.style.display = "block";
+        card.innerHTML = `
+            <div class="table-loading">
+                <span class="supplier-spinner">🔄</span>
+                <span>Querying Supplier Service via SOAP checkSupplierAvailability for Product #${productId}...</span>
+            </div>
+        `;
+    }
+
+    const suggested = Math.max(0, RESTOCK_TARGET_STOCK - product.quantity);
+
+    // Call SOAP checkSupplierAvailability
+    const soapPayload = `<inv:CheckSupplierAvailabilityRequest>
+        <inv:productId>${productId}</inv:productId>
+    </inv:CheckSupplierAvailabilityRequest>`;
+
+    const result = await callSoapService("checkSupplierAvailability", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "Failed to contact Supplier Service via SOAP (/ws). Ensure Supplier Service is running on port 8081.";
+        if (card) {
+            card.innerHTML = `
+                <div class="analysis-card-header">
+                    <div>
+                        <div class="analysis-prod-title">#${product.id} ${escapeXml(product.name)}</div>
+                        <div class="analysis-prod-meta">Current Stock: <strong>${product.quantity}</strong> | Suggested Replenishment: <strong>+${suggested} units</strong></div>
+                    </div>
+                </div>
+                <div class="table-empty-state" style="padding: 24px;">
+                    <div class="table-empty-icon">⚠️</div>
+                    <h3 class="table-empty-title">Supplier Data Unavailable</h3>
+                    <p class="table-empty-desc">${escapeXml(errorMsg)}</p>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="selectRestockCandidate(${productId})">
+                        🔄 Retry Supplier Query
+                    </button>
+                </div>
+            `;
+        }
+        return;
+    }
+
+    const responseNode = getXmlNode(result.xmlDoc, "CheckSupplierAvailabilityResponse");
+    const supplierName = getXmlValue(responseNode, "supplierName") || "Unknown Supplier";
+    const availableQty = parseInt(getXmlValue(responseNode, "availableQuantity") || "0", 10);
+    const supplierPrice = parseFloat(getXmlValue(responseNode, "supplierPrice") || "0.0");
+    const available = getXmlValue(responseNode, "available").toLowerCase() === "true";
+
+    // Fulfillability check
+    const canFulfill = available && availableQty >= suggested;
+    const partialFulfill = available && availableQty > 0 && availableQty < suggested;
+
+    let fulfillBadge = "";
+    if (canFulfill) {
+        fulfillBadge = `<span class="fulfill-badge fulfill-full">✔ Full Fulfillment Possible (${availableQty} in stock)</span>`;
+    } else if (partialFulfill) {
+        fulfillBadge = `<span class="fulfill-badge fulfill-partial">⚠️ Partial Fulfillment (${availableQty} available / ${suggested - availableQty} short)</span>`;
+    } else {
+        fulfillBadge = `<span class="fulfill-badge fulfill-none">✖ Insufficient Stock (0 available)</span>`;
+    }
+
+    const totalCost = (suggested * supplierPrice);
+    const unitSavings = product.price > supplierPrice ? (product.price - supplierPrice) : 0;
+    const defaultReceiptQty = availableQty > 0 ? Math.min(suggested, availableQty) : suggested;
+    const defaultReceiptRef = `RESTOCK-REC-${productId}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    let cardHtml = `
+        <div class="analysis-card-header">
+            <div>
+                <div class="analysis-prod-title">#${product.id} ${escapeXml(product.name)}</div>
+                <div class="analysis-prod-meta">
+                    Category: <strong>${escapeXml(product.category)}</strong> • Current Stock: <strong>${product.quantity}</strong> • Target: <strong>${RESTOCK_TARGET_STOCK}</strong> • Suggested Replenishment: <strong class="text-primary">+${suggested} units</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Supplier Availability & Commercial Quote -->
+        <div class="supplier-quote-box">
+            <div class="supplier-quote-header">
+                <span class="supplier-quote-title">🏢 ${escapeXml(supplierName)}</span>
+                ${fulfillBadge}
+            </div>
+
+            <div class="quote-row">
+                <span>Supplier Availability:</span>
+                <strong>${available ? `${availableQty} units available` : 'Inactive / Unavailable'}</strong>
+            </div>
+            <div class="quote-row">
+                <span>Supplier Unit Wholesale Price:</span>
+                <strong style="color: var(--primary);">₹${supplierPrice.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+            </div>
+            <div class="quote-row">
+                <span>Catalog Retail Price (INR):</span>
+                <span>₹${product.price.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            </div>
+            ${unitSavings > 0 ? `
+            <div class="quote-row" style="color: var(--success);">
+                <span>Estimated Unit Margin / Savings:</span>
+                <strong>₹${unitSavings.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${((unitSavings / product.price) * 100).toFixed(1)}%)</strong>
+            </div>
+            ` : ''}
+            <div class="quote-row quote-row-total">
+                <span>Estimated Total Procurement Cost (+${suggested} units):</span>
+                <span>₹${totalCost.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+            </div>
+        </div>
+
+        <!-- Currency Conversion Section (Base Currency: INR) -->
+        <div class="currency-conversion-box">
+            <div class="currency-conversion-header">
+                <span>💱 Currency Conversion Context (Base: INR)</span>
+                <span style="font-size: 11px; color: var(--text-muted);">Source: Frankfurter Live API</span>
+            </div>
+            <p style="margin-bottom: 8px; color: var(--text-secondary);">
+                Wholesale quotes and catalog prices are established in Indian Rupees (INR). You can convert this procurement cost to international currencies:
+            </p>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="convertRestockCurrency(${totalCost}, 'INR', 'USD')">
+                    Convert to USD ($)
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="convertRestockCurrency(${totalCost}, 'INR', 'EUR')">
+                    Convert to EUR (€)
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="convertRestockCurrency(${totalCost}, 'INR', 'INR')">
+                    Verify Base (INR)
+                </button>
+                <div id="restockCurrencyResult" style="margin-left: 8px; font-weight: 600; color: var(--text-primary);"></div>
+            </div>
+        </div>
+
+        <!-- Simulated Restock Receipt -->
+        <div class="simulated-receipt-box">
+            <div class="simulated-receipt-title">
+                <span>📥 Confirm Simulated Stock Receipt</span>
+            </div>
+            <p style="font-size: 12px; color: #065f46; margin-bottom: 10px;">
+                Confirm receipt of replenishment units. This updates database stock via SOAP <code>AdjustStock</code> and persists an audited movement record in history.
+            </p>
+
+            <div class="receipt-input-grid">
+                <div class="receipt-input-group">
+                    <label for="receiptQtyInput">Quantity Received (units):</label>
+                    <input type="number" id="receiptQtyInput" value="${defaultReceiptQty}" min="1" step="1">
+                </div>
+                <div class="receipt-input-group">
+                    <label for="receiptRefInput">Receipt / PO Reference:</label>
+                    <input type="text" id="receiptRefInput" value="${escapeXml(defaultReceiptRef)}">
+                </div>
+                <div class="receipt-input-group" style="grid-column: 1 / -1;">
+                    <label for="receiptReasonInput">Audit Reason / Note:</label>
+                    <input type="text" id="receiptReasonInput" value="Restock receipt from ${escapeXml(supplierName)}">
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-primary btn-sm" id="btnConfirmReceipt" onclick="confirmSimulatedReceipt(${productId}, '${escapeXml(supplierName)}')">
+                <span>📥 Confirm Simulated Receipt & Update Inventory</span>
+            </button>
+        </div>
+    `;
+
+    if (card) {
+        card.innerHTML = cardHtml;
+    }
+}
+
+async function convertRestockCurrency(amount, baseCurrency, targetCurrency) {
+    const resultEl = document.getElementById("restockCurrencyResult");
+    if (!resultEl) return;
+
+    if (baseCurrency.toUpperCase() === targetCurrency.toUpperCase()) {
+        resultEl.innerHTML = `₹${amount.toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})} INR (Same currency, rate: 1.0)`;
+        return;
+    }
+
+    resultEl.innerHTML = `<span class="supplier-spinner">🔄</span> Fetching live rate...`;
+
+    try {
+        const res = await fetch(`https://api.frankfurter.dev/v1/latest?from=${baseCurrency}&to=${targetCurrency}`);
+        if (!res.ok) throw new Error("API rate unavailable");
+        const data = await res.json();
+        if (data && data.rates && data.rates[targetCurrency]) {
+            const rate = data.rates[targetCurrency];
+            const converted = (amount * rate).toFixed(2);
+            const symbol = targetCurrency === "USD" ? "$" : (targetCurrency === "EUR" ? "€" : "");
+            resultEl.innerHTML = `<strong>${symbol}${Number(converted).toLocaleString()} ${targetCurrency}</strong> (Rate: ${rate.toFixed(4)}, Date: ${data.date || 'latest'})`;
+        } else {
+            resultEl.innerHTML = `<span style="color:var(--danger);">Rate unavailable</span>`;
+        }
+    } catch (err) {
+        resultEl.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">Frankfurter conversion unavailable (${err.message})</span>`;
+    }
+}
+
+async function confirmSimulatedReceipt(productId, supplierName) {
+    const qtyInput = document.getElementById("receiptQtyInput");
+    const refInput = document.getElementById("receiptRefInput");
+    const reasonInput = document.getElementById("receiptReasonInput");
+    const confirmBtn = document.getElementById("btnConfirmReceipt");
+
+    const qtyVal = qtyInput ? parseInt(qtyInput.value.trim(), 10) : 0;
+    const refVal = refInput ? refInput.value.trim() : `RESTOCK-REC-${productId}`;
+    const reasonVal = reasonInput ? reasonInput.value.trim() : `Restock receipt from ${supplierName}`;
+
+    if (isNaN(qtyVal) || qtyVal <= 0) {
+        showResult("Please enter a valid positive quantity to receive.", "error", "Validation Error");
+        return;
+    }
+
+    // Disable button to prevent double submission
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = `<span>🔄 Processing SOAP Stock Adjustment...</span>`;
+    }
+
+    showResult(`Submitting simulated restock receipt for #${productId} (+${qtyVal} units)...`, "info", "SOAP: AdjustStock");
+
+    const soapPayload = `<inv:AdjustStockRequest>
+        <inv:productId>${productId}</inv:productId>
+        <inv:quantityChange>${qtyVal}</inv:quantityChange>
+        <inv:reason>${escapeXml(reasonVal)}</inv:reason>
+        <inv:reference>${escapeXml(refVal)}</inv:reference>
+    </inv:AdjustStockRequest>`;
+
+    const result = await callSoapService("adjustStock", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "Failed to confirm stock receipt via SOAP service.";
+        showResult(errorMsg, "error", "SOAP: AdjustStock");
+        renderSoapResponseCard("adjustStock", "FAULT", errorMsg, null, result.rawXml);
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = `<span>📥 Confirm Simulated Receipt & Update Inventory</span>`;
+        }
+        return;
+    }
+
+    const responseNode = getXmlNode(result.xmlDoc, "AdjustStockResponse");
+    const successStr = getXmlValue(responseNode, "success");
+    const isSuccess = successStr.toLowerCase() === "true";
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Restock receipt confirmed successfully" : "Failed to record restock receipt");
+    const updatedQuantityStr = getXmlValue(responseNode, "updatedQuantity");
+    const updatedQuantity = updatedQuantityStr ? parseInt(updatedQuantityStr, 10) : null;
+
+    if (isSuccess) {
+        showResult(`Restock receipt recorded: +${qtyVal} units added to Product #${productId} (new balance: ${updatedQuantity} units).`, "success", "SOAP: AdjustStock");
+        renderSoapResponseCard("adjustStock", "SUCCESS", message, {
+            id: productId,
+            quantity: updatedQuantity !== null ? updatedQuantity : "Updated"
+        }, result.rawXml);
+
+        // 1. Refresh inventory via getAllProducts
+        await fetchAllProducts(false, `SOAP: Restock Receipt #${productId} (+${qtyVal})`);
+
+        // 2. Refresh stock movement history via getStockMovements
+        await fetchStockMovements(false);
+
+        // 3. Re-evaluate Smart Restocking
+        renderSmartRestocking();
+
+        // 4. Update details if selected
+        const updatedProd = productCache.get(productId);
+        if (updatedProd) {
+            displayProduct(updatedProd);
+        }
+    } else {
+        showResult(message, "error", "SOAP: AdjustStock");
+        renderSoapResponseCard("adjustStock", "FAILED", message, { id: productId }, result.rawXml);
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = `<span>📥 Confirm Simulated Receipt & Update Inventory</span>`;
+        }
+    }
+}
+
+function scrollToSmartRestocking() {
+    const section = document.getElementById("smartRestockingSection");
     if (section) {
         section.scrollIntoView({ behavior: "smooth" });
     }

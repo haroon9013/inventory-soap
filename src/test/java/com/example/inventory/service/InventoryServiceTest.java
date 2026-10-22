@@ -553,4 +553,200 @@ class InventoryServiceTest {
         verify(productRepository, never()).save(any(ProductEntity.class));
         verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
     }
+
+    // --------------------------------------------------------------------------
+    // Milestone 3: Smart Restocking and Supplier Tests
+    // --------------------------------------------------------------------------
+
+    @Test
+    void testRestockRecommendationZeroStockCritical() {
+        Product product = createProduct(101, "Laptop", 0, 50000.0, "Electronics");
+        var rec = inventoryService.calculateRestockRecommendation(product);
+
+        assertNotNull(rec);
+        assertEquals(101, rec.getProductId());
+        assertEquals("Laptop", rec.getProductName());
+        assertEquals(0, rec.getCurrentQuantity());
+        assertEquals(20, rec.getTargetQuantity());
+        assertEquals(20, rec.getSuggestedQuantity());
+        assertEquals("CRITICAL", rec.getUrgency());
+        assertTrue(rec.isCandidate());
+        assertTrue(rec.getReason().contains("Out of Stock"));
+    }
+
+    @Test
+    void testRestockRecommendationLowStockHigh() {
+        Product product = createProduct(102, "Wireless Mouse", 3, 2500.0, "Accessories");
+        var rec = inventoryService.calculateRestockRecommendation(product);
+
+        assertNotNull(rec);
+        assertEquals(102, rec.getProductId());
+        assertEquals(3, rec.getCurrentQuantity());
+        assertEquals(20, rec.getTargetQuantity());
+        assertEquals(17, rec.getSuggestedQuantity());
+        assertEquals("HIGH", rec.getUrgency());
+        assertTrue(rec.isCandidate());
+        assertTrue(rec.getReason().contains("Low Stock"));
+    }
+
+    @Test
+    void testRestockRecommendationBetweenThresholdAndTarget() {
+        Product product = createProduct(103, "Monitor", 10, 18000.0, "Displays");
+        var rec = inventoryService.calculateRestockRecommendation(product);
+
+        assertNotNull(rec);
+        assertEquals(10, rec.getCurrentQuantity());
+        assertEquals(20, rec.getTargetQuantity());
+        assertEquals(10, rec.getSuggestedQuantity());
+        assertFalse(rec.isCandidate(), "Products with quantity >= low-stock threshold (5) should not be replenishment candidates");
+    }
+
+    @Test
+    void testRestockRecommendationTargetMetOrExceeded() {
+        Product product1 = createProduct(104, "USB-C Cable", 20, 500.0, "Cables");
+        var rec1 = inventoryService.calculateRestockRecommendation(product1);
+        assertNotNull(rec1);
+        assertEquals(0, rec1.getSuggestedQuantity());
+        assertFalse(rec1.isCandidate());
+
+        Product product2 = createProduct(105, "HDMI Cable", 35, 800.0, "Cables");
+        var rec2 = inventoryService.calculateRestockRecommendation(product2);
+        assertNotNull(rec2);
+        assertEquals(0, rec2.getSuggestedQuantity());
+        assertFalse(rec2.isCandidate());
+    }
+
+    @Test
+    void testRestockRecommendationCustomThresholdAndTarget() {
+        Product product = createProduct(106, "Webcam", 7, 4500.0, "Accessories");
+        // Custom: target 50, threshold 10 -> current 7 is below threshold 10
+        var rec = inventoryService.calculateRestockRecommendation(product, 50, 10);
+
+        assertNotNull(rec);
+        assertEquals(7, rec.getCurrentQuantity());
+        assertEquals(50, rec.getTargetQuantity());
+        assertEquals(43, rec.getSuggestedQuantity());
+        assertTrue(rec.isCandidate());
+        assertEquals("HIGH", rec.getUrgency());
+    }
+
+    @Test
+    void testGetRestockRecommendationsFiltersProperly() {
+        ProductEntity p1 = createEntity(101, "Out Of Stock Item", 0, 100.0, "Test");
+        ProductEntity p2 = createEntity(102, "Low Stock Item", 2, 200.0, "Test");
+        ProductEntity p3 = createEntity(103, "Adequate Stock Item", 15, 300.0, "Test");
+        ProductEntity p4 = createEntity(104, "Target Exceeded Item", 25, 400.0, "Test");
+
+        when(productRepository.findAll()).thenReturn(List.of(p1, p2, p3, p4));
+
+        var candidates = inventoryService.getRestockRecommendations();
+
+        assertEquals(2, candidates.size());
+        assertEquals(101, candidates.get(0).getProductId());
+        assertEquals("CRITICAL", candidates.get(0).getUrgency());
+        assertEquals(102, candidates.get(1).getProductId());
+        assertEquals("HIGH", candidates.get(1).getUrgency());
+    }
+
+    @Test
+    void testSimulatedRestockReceiptViaAdjustStock() {
+        ProductEntity existing = createEntity(101, "Laptop", 3, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        // User receives suggested 17 units from supplier
+        var res = inventoryService.adjustStock(
+                101,
+                17,
+                null,
+                "Restock receipt from Global Tech Logistics",
+                "PO-REC-101-991"
+        );
+
+        assertTrue(res.isSuccess());
+        assertEquals(3, res.getPreviousQuantity());
+        assertEquals(20, res.getUpdatedQuantity());
+        assertEquals(101, res.getProductId());
+
+        verify(productRepository).save(argThat(p -> p.getId() == 101 && p.getQuantity() == 20));
+        verify(stockMovementRepository).save(argThat(m ->
+                m.getProductId() == 101 &&
+                m.getMovementType().equals("ADJUSTMENT") &&
+                m.getPreviousQuantity() == 3 &&
+                m.getNewQuantity() == 20 &&
+                m.getQuantityChange() == 17 &&
+                m.getReason().equals("Restock receipt from Global Tech Logistics") &&
+                m.getReference().equals("PO-REC-101-991")
+        ));
+    }
+
+    @Test
+    void testCheckSupplierAvailabilitySuccess() {
+        SupplierClient supplierClient = mock(SupplierClient.class);
+        InventoryService serviceWithClient = new InventoryService(
+                productRepository,
+                stockMovementRepository,
+                supplierClient,
+                null,
+                null
+        );
+
+        SupplierAvailabilityDto mockDto = new SupplierAvailabilityDto(
+                101, "Global Tech Logistics", 150, 48000.0, true, "OK"
+        );
+        when(supplierClient.checkSupplierAvailability(101)).thenReturn(mockDto);
+
+        var result = serviceWithClient.checkSupplierAvailability(101);
+
+        assertNotNull(result);
+        assertEquals("Global Tech Logistics", result.getSupplierName());
+        assertEquals(150, result.getAvailableQuantity());
+        assertEquals(48000.0, result.getSupplierPrice());
+        assertTrue(result.isAvailable());
+    }
+
+    @Test
+    void testCheckSupplierAvailabilityFallback() {
+        InventoryService serviceWithoutClient = new InventoryService(
+                productRepository,
+                stockMovementRepository,
+                null,
+                null,
+                null
+        );
+
+        var result = serviceWithoutClient.checkSupplierAvailability(101);
+
+        assertNotNull(result);
+        assertEquals("Supplier Service Not Configured", result.getSupplierName());
+        assertFalse(result.isAvailable());
+    }
+
+    @Test
+    void testGetProductExternalInfoUsesInrBaseCurrency() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 55000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        FrankfurterClient frankfurterClient = mock(FrankfurterClient.class);
+        CurrencyInfoDto mockCurrency = new CurrencyInfoDto("INR", "USD", 0.012, 660.0, "SUCCESS");
+        when(frankfurterClient.convertCurrency(55000.0, "INR", "USD")).thenReturn(mockCurrency);
+
+        InventoryService service = new InventoryService(
+                productRepository,
+                stockMovementRepository,
+                null,
+                frankfurterClient,
+                null
+        );
+
+        var info = service.getProductExternalInfo(101);
+
+        assertNotNull(info);
+        assertTrue(info.isSuccess());
+        assertNotNull(info.getCurrencyInfo());
+        assertEquals("INR", info.getCurrencyInfo().getBaseCurrency());
+        assertEquals("USD", info.getCurrencyInfo().getTargetCurrency());
+
+        // Verify Frankfurter was called with INR base currency, NOT EUR
+        verify(frankfurterClient).convertCurrency(55000.0, "INR", "USD");
+    }
 }

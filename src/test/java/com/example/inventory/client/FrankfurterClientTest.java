@@ -69,4 +69,51 @@ class FrankfurterClientTest {
         assertEquals(100.0, result.getConvertedPrice());
         assertTrue(result.getStatus().contains("UNAVAILABLE"));
     }
+
+    @Test
+    void testSameCurrencyConversionDoesNotCallApi() {
+        // When source and target currencies match (e.g. INR -> INR), no HTTP request should be made
+        CurrencyInfoDto result = frankfurterClient.convertCurrency(55000.0, "INR", "INR");
+
+        assertNotNull(result);
+        assertEquals("INR", result.getBaseCurrency());
+        assertEquals("INR", result.getTargetCurrency());
+        assertEquals(1.0, result.getExchangeRate());
+        assertEquals(55000.0, result.getConvertedPrice());
+        assertTrue(result.getStatus().contains("Same currency"));
+
+        // Verify that restTemplate was NEVER called
+        verify(restTemplate, never()).getForObject(anyString(), any());
+    }
+
+    @Test
+    void testConvertCurrencyDirectionInrToUsd() {
+        FrankfurterClient.FrankfurterResponse mockResponse = new FrankfurterClient.FrankfurterResponse();
+        mockResponse.setAmount(1.0);
+        mockResponse.setBase("INR");
+        mockResponse.setDate("2026-10-22");
+        Map<String, Double> rates = new HashMap<>();
+        rates.put("USD", 0.012);
+        mockResponse.setRates(rates);
+
+        when(restTemplate.getForObject(contains("from=INR&to=USD"), eq(FrankfurterClient.FrankfurterResponse.class)))
+                .thenReturn(mockResponse);
+
+        CurrencyInfoDto result = frankfurterClient.convertCurrency(10000.0, "INR", "USD");
+
+        assertNotNull(result);
+        assertEquals("INR", result.getBaseCurrency());
+        assertEquals("USD", result.getTargetCurrency());
+        assertEquals(0.012, result.getExchangeRate());
+        assertEquals(120.0, result.getConvertedPrice());
+        assertTrue(result.getStatus().contains("2026-10-22"));
+    }
+
+    @Test
+    void testNullCurrencyHandling() {
+        CurrencyInfoDto result = frankfurterClient.convertCurrency(100.0, null, "USD");
+        assertNotNull(result);
+        assertTrue(result.getStatus().contains("ERROR"));
+        verify(restTemplate, never()).getForObject(anyString(), any());
+    }
 }

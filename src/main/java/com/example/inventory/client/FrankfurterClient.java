@@ -33,22 +33,47 @@ public class FrankfurterClient {
     }
 
     public CurrencyInfoDto convertCurrency(double amount, String baseCurrency, String targetCurrency) {
-        String url = String.format("%s/latest?from=%s&to=%s", frankfurterApiUrl, baseCurrency, targetCurrency);
+        if (baseCurrency == null || targetCurrency == null) {
+            return new CurrencyInfoDto(
+                    baseCurrency != null ? baseCurrency : "UNKNOWN",
+                    targetCurrency != null ? targetCurrency : "UNKNOWN",
+                    0.0,
+                    amount,
+                    "ERROR: Source and target currencies must be specified"
+            );
+        }
+
+        String base = baseCurrency.trim().toUpperCase();
+        String target = targetCurrency.trim().toUpperCase();
+
+        // Same-currency optimization: do not perform external HTTP request when currencies match
+        if (base.equals(target)) {
+            return new CurrencyInfoDto(
+                    base,
+                    target,
+                    1.0,
+                    amount,
+                    "SUCCESS: Same currency (no conversion needed)"
+            );
+        }
+
+        String url = String.format("%s/latest?from=%s&to=%s", frankfurterApiUrl, base, target);
         try {
             FrankfurterResponse response = restTemplate.getForObject(url, FrankfurterResponse.class);
 
-            if (response != null && response.getRates() != null && response.getRates().containsKey(targetCurrency)) {
-                double rate = response.getRates().get(targetCurrency);
+            if (response != null && response.getRates() != null && response.getRates().containsKey(target)) {
+                double rate = response.getRates().get(target);
                 double converted = BigDecimal.valueOf(amount * rate)
                         .setScale(2, RoundingMode.HALF_UP)
                         .doubleValue();
 
+                String dateStr = response.getDate() != null ? response.getDate() : "latest";
                 return new CurrencyInfoDto(
-                        baseCurrency,
-                        targetCurrency,
+                        base,
+                        target,
                         rate,
                         converted,
-                        "SUCCESS: Live rate from Frankfurter API"
+                        "SUCCESS: Live rate from Frankfurter API (date: " + dateStr + ")"
                 );
             }
         } catch (RestClientException ex) {
@@ -59,8 +84,8 @@ public class FrankfurterClient {
 
         // Resilient fallback when API is down or unreachable
         return new CurrencyInfoDto(
-                baseCurrency,
-                targetCurrency,
+                base,
+                target,
                 0.0,
                 amount,
                 "UNAVAILABLE: Unable to connect to Frankfurter API at " + frankfurterApiUrl
