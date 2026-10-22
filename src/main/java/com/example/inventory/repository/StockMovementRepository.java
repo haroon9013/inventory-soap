@@ -17,4 +17,6 @@ public interface StockMovementRepository extends JpaRepository<StockMovementEnti
     List<StockMovementEntity> findByProductIdOrderByTimestampDescIdDesc(int productId);
 
     List<StockMovementEntity> findByProductIdOrderByTimestampDescIdDesc(int productId, Pageable pageable);
+
+    boolean existsByProductId(int productId);
 }

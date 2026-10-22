@@ -93,6 +93,11 @@ public class InventoryService {
             return false;
         }
 
+        // Prevent reusing a retired product ID that already has historical stock movements
+        if (stockMovementRepository != null && stockMovementRepository.existsByProductId(product.getId())) {
+            return false;
+        }
+
         ProductEntity entity = toEntity(product);
         productRepository.save(entity);
 

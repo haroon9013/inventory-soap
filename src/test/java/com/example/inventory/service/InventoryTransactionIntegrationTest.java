@@ -182,4 +182,49 @@ public class InventoryTransactionIntegrationTest {
         assertEquals(successCount.get(), movements.size(),
                 "Number of movement records must precisely match number of successful adjustments");
     }
+
+    @Test
+    void testProductDeletionPreservesHistoryAndPreventsIdReuseMixingHistories() {
+        Product productV1 = new Product();
+        productV1.setId(506);
+        productV1.setName("Widget Original");
+        productV1.setQuantity(50);
+        productV1.setPrice(100.0);
+        productV1.setCategory("Widgets");
+
+        boolean added = inventoryService.addProduct(productV1);
+        assertTrue(added);
+
+        // Adjust stock
+        AdjustStockResponse adjResponse = inventoryService.adjustStock(506, -10, null, "Sold items", "ORDER-1");
+        assertTrue(adjResponse.isSuccess());
+
+        // Delete the product
+        boolean deleted = inventoryService.deleteProduct(506);
+        assertTrue(deleted);
+
+        // Verify entity is gone from products
+        assertFalse(productRepository.existsById(506));
+
+        // Verify history is preserved (ADD, ADJUST, DELETE)
+        List<StockMovementEntity> history = stockMovementRepository.findByProductIdOrderByTimestampDescIdDesc(506);
+        assertEquals(3, history.size(), "All 3 historical movements must be preserved after product deletion");
+
+        // Attempt to create a completely new product reusing the same ID 506
+        Product productV2 = new Product();
+        productV2.setId(506);
+        productV2.setName("Brand New Unrelated Gadget");
+        productV2.setQuantity(200);
+        productV2.setPrice(999.0);
+        productV2.setCategory("Gadgets");
+
+        boolean reusedAddResult = inventoryService.addProduct(productV2);
+        assertFalse(reusedAddResult, "Adding a product with an ID that has existing movement history must be rejected");
+
+        // Verify database state: product remains deleted, history remains uncontaminated
+        assertFalse(productRepository.existsById(506));
+        List<StockMovementEntity> historyAfter = stockMovementRepository.findByProductIdOrderByTimestampDescIdDesc(506);
+        assertEquals(3, historyAfter.size(), "Movement history must remain intact and not contaminated");
+        assertEquals("DELETE_PRODUCT", historyAfter.get(0).getReference());
+    }
 }

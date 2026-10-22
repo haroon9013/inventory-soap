@@ -89,6 +89,18 @@ class InventoryServiceTest {
     }
 
     @Test
+    void testAddProductRejectsReusedDeletedProductIdWithHistory() {
+        Product product = createProduct(101, "New Laptop", 5, 55000.0, "Electronics");
+        when(productRepository.existsById(101)).thenReturn(false);
+        when(stockMovementRepository.existsByProductId(101)).thenReturn(true);
+
+        boolean added = inventoryService.addProduct(product);
+
+        assertFalse(added);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+    }
+
+    @Test
     void testGetExistingProduct() {
         ProductEntity entity = createEntity(101, "Laptop", 10, 55000.0, "Electronics");
         when(productRepository.findById(101)).thenReturn(Optional.of(entity));
