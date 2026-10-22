@@ -90,4 +90,19 @@ public class DataSourceConfig {
         }
         return new HikariDataSource(config);
     }
+
+    @Bean
+    public org.springframework.boot.ApplicationRunner databaseVersionSanitizer(DataSource dataSource) {
+        return args -> {
+            try (java.sql.Connection conn = dataSource.getConnection();
+                 java.sql.Statement stmt = conn.createStatement()) {
+                int updated = stmt.executeUpdate("UPDATE products SET version = 0 WHERE version IS NULL");
+                if (updated > 0) {
+                    log.info("Sanitized {} legacy product records with null version -> 0", updated);
+                }
+            } catch (Exception e) {
+                log.debug("Database version initialization skipped: {}", e.getMessage());
+            }
+        };
+    }
 }

@@ -2,6 +2,9 @@ package com.example.inventory.entity;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
@@ -21,7 +24,8 @@ public class ProductEntity {
     private String category;
 
     @Version
-    private Long version;
+    @jakarta.persistence.Column(name = "version")
+    private Long version = 0L;
 
     public ProductEntity() {
     }
@@ -32,11 +36,12 @@ public class ProductEntity {
         this.quantity = quantity;
         this.price = price;
         this.category = category;
+        this.version = 0L;
     }
 
     public ProductEntity(Integer id, String name, Integer quantity, Double price, String category, Long version) {
         this(id, name, quantity, price, category);
-        this.version = version;
+        this.version = version != null ? version : 0L;
     }
 
     public Integer getId() {
@@ -80,10 +85,10 @@ public class ProductEntity {
     }
 
     public Long getVersion() {
-        return version;
+        return version != null ? version : 0L;
     }
 
     public void setVersion(Long version) {
-        this.version = version;
+        this.version = version != null ? version : 0L;
     }
 }

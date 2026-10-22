@@ -246,4 +246,131 @@ public class InventorySoapEndpointIntegrationTest {
         assertTrue(response.getStatusCode().is5xxServerError() || response.getStatusCode().is4xxClientError());
         assertNotNull(response.getBody());
     }
+
+    @Test
+    void testDeleteProductSoapRequest() {
+        productRepository.save(new ProductEntity(711, "Disposable Headset", 15, 450.0, "Audio"));
+
+        String xml = wrapSoapEnvelope(
+                "<inv:DeleteProductRequest>" +
+                "  <inv:id>711</inv:id>" +
+                "</inv:DeleteProductRequest>"
+        );
+        HttpEntity<String> entity = new HttpEntity<>(xml, createSoapHeaders());
+
+        ResponseEntity<String> response = restTemplate.postForEntity("/ws", entity, String.class);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("DeleteProductResponse"));
+        assertTrue(response.getBody().contains("<success>true</success>") || response.getBody().contains(">true<"));
+        assertTrue(response.getBody().contains("Product deleted successfully"));
+
+        // Product is deleted from products repository
+        assertFalse(productRepository.existsById(711));
+
+        // Movement record is preserved in stock_movements repository
+        var movements = stockMovementRepository.findByProductIdOrderByTimestampDescIdDesc(711);
+        assertEquals(1, movements.size());
+        assertEquals("DELETE_PRODUCT", movements.get(0).getReference());
+        assertEquals("STOCK_OUT", movements.get(0).getMovementType());
+        assertEquals(-15, movements.get(0).getQuantityChange());
+        assertEquals(0, movements.get(0).getNewQuantity());
+    }
+
+    @Test
+    void testEndToEndAddListAdjustDeleteAndHistoryConsistency() {
+        // Step 1: Add product #710 via SOAP
+        String addXml = wrapSoapEnvelope(
+                "<inv:AddProductRequest>" +
+                "  <inv:product>" +
+                "    <inv:id>710</inv:id>" +
+                "    <inv:name>Ergonomic Mouse</inv:name>" +
+                "    <inv:quantity>20</inv:quantity>" +
+                "    <inv:price>1500.0</inv:price>" +
+                "    <inv:category>Peripherals</inv:category>" +
+                "  </inv:product>" +
+                "</inv:AddProductRequest>"
+        );
+        ResponseEntity<String> addResp = restTemplate.postForEntity("/ws", new HttpEntity<>(addXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, addResp.getStatusCode());
+        assertTrue(addResp.getBody().contains("<success>true</success>") || addResp.getBody().contains(">true<"));
+
+        // Step 2: List all products and verify #710 is present
+        String listXml = wrapSoapEnvelope("<inv:GetAllProductsRequest/>");
+        ResponseEntity<String> listResp1 = restTemplate.postForEntity("/ws", new HttpEntity<>(listXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, listResp1.getStatusCode());
+        assertTrue(listResp1.getBody().contains("<id>710</id>") || listResp1.getBody().contains(">710<"));
+        assertTrue(listResp1.getBody().contains("Ergonomic Mouse"));
+
+        // Step 3: Adjust stock via relative delta (+10) -> 30
+        String adjustDeltaXml = wrapSoapEnvelope(
+                "<inv:AdjustStockRequest>" +
+                "  <inv:productId>710</inv:productId>" +
+                "  <inv:quantityChange>10</inv:quantityChange>" +
+                "  <inv:reason>Restock delivery</inv:reason>" +
+                "  <inv:reference>PO-710-A</inv:reference>" +
+                "</inv:AdjustStockRequest>"
+        );
+        ResponseEntity<String> adjustDeltaResp = restTemplate.postForEntity("/ws", new HttpEntity<>(adjustDeltaXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, adjustDeltaResp.getStatusCode());
+        assertTrue(adjustDeltaResp.getBody().contains("<success>true</success>") || adjustDeltaResp.getBody().contains(">true<"));
+        assertTrue(adjustDeltaResp.getBody().contains("<updatedQuantity>30</updatedQuantity>") || adjustDeltaResp.getBody().contains(">30<"));
+
+        // Step 4: Adjust stock via target quantity (set to 45) -> 45
+        String adjustTargetXml = wrapSoapEnvelope(
+                "<inv:AdjustStockRequest>" +
+                "  <inv:productId>710</inv:productId>" +
+                "  <inv:targetQuantity>45</inv:targetQuantity>" +
+                "  <inv:reason>Physical cycle count</inv:reason>" +
+                "  <inv:reference>AUDIT-710</inv:reference>" +
+                "</inv:AdjustStockRequest>"
+        );
+        ResponseEntity<String> adjustTargetResp = restTemplate.postForEntity("/ws", new HttpEntity<>(adjustTargetXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, adjustTargetResp.getStatusCode());
+        assertTrue(adjustTargetResp.getBody().contains("<success>true</success>") || adjustTargetResp.getBody().contains(">true<"));
+        assertTrue(adjustTargetResp.getBody().contains("<updatedQuantity>45</updatedQuantity>") || adjustTargetResp.getBody().contains(">45<"));
+
+        // Step 5: Delete product #710
+        String deleteXml = wrapSoapEnvelope(
+                "<inv:DeleteProductRequest>" +
+                "  <inv:id>710</inv:id>" +
+                "</inv:DeleteProductRequest>"
+        );
+        ResponseEntity<String> deleteResp = restTemplate.postForEntity("/ws", new HttpEntity<>(deleteXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, deleteResp.getStatusCode());
+        assertTrue(deleteResp.getBody().contains("<success>true</success>") || deleteResp.getBody().contains(">true<"));
+
+        // Step 6: Verify product #710 no longer appears in GetAllProducts
+        ResponseEntity<String> listResp2 = restTemplate.postForEntity("/ws", new HttpEntity<>(listXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, listResp2.getStatusCode());
+        assertFalse(listResp2.getBody().contains("<id>710</id>"), "Deleted product #710 must not appear in GetAllProducts");
+        assertFalse(productRepository.existsById(710), "Deleted product #710 must be removed from products repository");
+
+        // Step 7: Verify stock history is preserved with all 4 audit records (ADD, ADJUST delta, ADJUST target, DELETE)
+        String movementsXml = wrapSoapEnvelope(
+                "<inv:GetStockMovementsRequest>" +
+                "  <inv:productId>710</inv:productId>" +
+                "</inv:GetStockMovementsRequest>"
+        );
+        ResponseEntity<String> movementsResp = restTemplate.postForEntity("/ws", new HttpEntity<>(movementsXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, movementsResp.getStatusCode());
+        assertTrue(movementsResp.getBody().contains("GetStockMovementsResponse"));
+        assertTrue(movementsResp.getBody().contains("ADD_PRODUCT"), "History must retain ADD_PRODUCT movement");
+        assertTrue(movementsResp.getBody().contains("PO-710-A"), "History must retain first adjustment movement");
+        assertTrue(movementsResp.getBody().contains("AUDIT-710"), "History must retain target adjustment movement");
+        assertTrue(movementsResp.getBody().contains("DELETE_PRODUCT"), "History must retain DELETE_PRODUCT movement");
+
+        // Step 8: Adjust stock on deleted product #710 returns clean failure without crash
+        String adjustDeletedXml = wrapSoapEnvelope(
+                "<inv:AdjustStockRequest>" +
+                "  <inv:productId>710</inv:productId>" +
+                "  <inv:quantityChange>5</inv:quantityChange>" +
+                "  <inv:reason>Attempt adjustment on deleted product</inv:reason>" +
+                "</inv:AdjustStockRequest>"
+        );
+        ResponseEntity<String> adjustDeletedResp = restTemplate.postForEntity("/ws", new HttpEntity<>(adjustDeletedXml, createSoapHeaders()), String.class);
+        assertEquals(HttpStatus.OK, adjustDeletedResp.getStatusCode());
+        assertTrue(adjustDeletedResp.getBody().contains("<success>false</success>") || adjustDeletedResp.getBody().contains(">false<"));
+        assertTrue(adjustDeletedResp.getBody().contains("not found"), "Adjustment on deleted product must return clean 'not found' response");
+    }
 }

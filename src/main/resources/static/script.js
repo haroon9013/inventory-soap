@@ -84,6 +84,7 @@ function formatXmlForDisplay(xmlString) {
 }
 
 async function callSoapService(operationName, bodyPayloadXml) {
+    const normalizedAction = operationName ? (operationName.charAt(0).toUpperCase() + operationName.slice(1)) : "";
     const envelope = `<?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:inv="${SOAP_NAMESPACE}">
     <soap:Header/>
@@ -97,7 +98,7 @@ async function callSoapService(operationName, bodyPayloadXml) {
             method: "POST",
             headers: {
                 "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": `"${SOAP_NAMESPACE}/${operationName}"`
+                "SOAPAction": `"${SOAP_NAMESPACE}/${normalizedAction}"`
             },
             body: envelope
         });
@@ -562,6 +563,24 @@ async function deleteProduct() {
 
     if (isSuccess) {
         closeModal("modal-delete");
+        closeModal("modal-details");
+
+        // Immediately purge from client cache and refresh UI
+        productCache.delete(id);
+        renderInventoryTable();
+        renderSmartRestocking();
+        updateStatistics("Deleted #" + id);
+
+        const detailsContainer = document.getElementById("productDetails");
+        if (detailsContainer) {
+            detailsContainer.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">📦</div>
+                    <h3 class="empty-title">No Product Selected</h3>
+                </div>
+            `;
+        }
+
         showResult("Product #" + id + " permanently deleted from catalog.", "success", "Product Deleted");
         renderSoapResponseCard("deleteProduct", "SUCCESS", message, { id: id }, result.rawXml);
         document.getElementById("deleteId").value = "";
@@ -1793,6 +1812,16 @@ async function adjustStock() {
 
         clearAdjustForm();
 
+        // Immediately update productCache and UI if new quantity is known
+        if (updatedQuantity !== null && productCache.has(productId)) {
+            const prod = productCache.get(productId);
+            prod.quantity = updatedQuantity;
+            productCache.set(productId, prod);
+            renderInventoryTable();
+            renderSmartRestocking();
+            updateStatistics(`Adjusted #${productId} -> ${updatedQuantity} units`);
+        }
+
         // Refresh all products via SOAP getAllProducts
         await fetchAllProducts(false, `Adjusted #${productId} -> ${updatedQuantity} units`);
 
@@ -2465,6 +2494,15 @@ async function confirmSimulatedReceipt(productId, supplierName) {
             id: productId,
             quantity: updatedQuantity !== null ? updatedQuantity : "Updated"
         }, result.rawXml);
+
+        if (updatedQuantity !== null && productCache.has(productId)) {
+            const prod = productCache.get(productId);
+            prod.quantity = updatedQuantity;
+            productCache.set(productId, prod);
+            renderInventoryTable();
+            renderSmartRestocking();
+            updateStatistics(`Restock Receipt #${productId} (+${qtyVal})`);
+        }
 
         // 1. Refresh inventory via getAllProducts
         await fetchAllProducts(false, `Restock Receipt #${productId} (+${qtyVal})`);

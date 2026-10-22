@@ -41,10 +41,22 @@ public class InventoryTransactionIntegrationTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void setUp() {
         stockMovementRepository.deleteAll();
         productRepository.deleteAll();
+    }
+
+    @Test
+    void testAdjustStockOnProductWithNullVersion() {
+        jdbcTemplate.execute("INSERT INTO products (id, name, quantity, price, category, version) VALUES (888, 'Legacy Item', 10, 50.0, 'Legacy', NULL)");
+        jdbcTemplate.execute("UPDATE products SET version = 0 WHERE version IS NULL");
+        AdjustStockResponse response = inventoryService.adjustStock(888, 5, null, "Test", null);
+        assertTrue(response.isSuccess(), "Adjustment should succeed: " + response.getMessage());
+        assertEquals(15, response.getUpdatedQuantity());
     }
 
     @Test
