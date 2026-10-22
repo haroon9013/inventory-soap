@@ -42,6 +42,10 @@
                 <span class="nav-icon">🗑️</span>
                 <span>Delete Product</span>
             </button>
+            <button class="nav-item" id="nav-adjust" onclick="switchTab('adjust')">
+                <span class="nav-icon">⚖️</span>
+                <span>Adjust Stock</span>
+            </button>
             <button class="nav-item" id="nav-external" onclick="switchTab('external')">
                 <span class="nav-icon">🌐</span>
                 <span>External Info</span>
@@ -49,6 +53,10 @@
             <button class="nav-item" id="nav-table" onclick="scrollToInventoryTable()">
                 <span class="nav-icon">📋</span>
                 <span>Inventory Table</span>
+            </button>
+            <button class="nav-item" id="nav-activity" onclick="scrollToStockActivity()">
+                <span class="nav-icon">📜</span>
+                <span>Stock Activity</span>
             </button>
         </nav>
 
@@ -176,6 +184,9 @@
                     </button>
                     <button class="tab-btn" id="tab-btn-delete" onclick="switchTab('delete')">
                         <span>🗑️ Delete</span>
+                    </button>
+                    <button class="tab-btn" id="tab-btn-adjust" onclick="switchTab('adjust')">
+                        <span>⚖️ Adjust Stock</span>
                     </button>
                     <button class="tab-btn" id="tab-btn-external" onclick="switchTab('external')">
                         <span>🌐 External Info</span>
@@ -317,6 +328,54 @@
                     </div>
                 </div>
 
+                <!-- ADJUST STOCK PANE -->
+                <div class="tab-pane" id="tab-pane-adjust">
+                    <div class="pane-intro">
+                        <h3>Stock Adjustment</h3>
+                        <p>Record an explicit stock modification with an audit reason via SOAP <code>AdjustStockRequest</code>.</p>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="adjustId">Product ID <span class="required">*</span></label>
+                            <input type="number" id="adjustId" placeholder="e.g. 101" min="1" step="1">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="adjustMode">Adjustment Mode <span class="required">*</span></label>
+                            <select id="adjustMode" class="form-select" onchange="onAdjustModeChange()">
+                                <option value="change">Relative Change (+/- delta)</option>
+                                <option value="target">Target Quantity (Set absolute stock)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group form-group-full">
+                            <label for="adjustQuantity" id="adjustQuantityLabel">Quantity Change (e.g. +5 or -3) <span class="required">*</span></label>
+                            <input type="number" id="adjustQuantity" placeholder="e.g. 5 or -2" step="1">
+                            <span class="form-hint" id="adjustQuantityHint">Enter positive number to add stock, negative to deduct stock.</span>
+                        </div>
+
+                        <div class="form-group form-group-full">
+                            <label for="adjustReason">Adjustment Reason / Audit Note <span class="required">*</span></label>
+                            <input type="text" id="adjustReason" placeholder="e.g. Physical cycle count audit, supplier shipment arrival, transit damage">
+                        </div>
+
+                        <div class="form-group form-group-full">
+                            <label for="adjustReference">Reference / PO / Ticket # (Optional)</label>
+                            <input type="text" id="adjustReference" placeholder="e.g. AUDIT-2026-Q4, RMA-8891">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary" onclick="adjustStock()">
+                            <span>⚖️ Submit Stock Adjustment</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearAdjustForm()">
+                            Clear Form
+                        </button>
+                    </div>
+                </div>
+
                 <!-- EXTERNAL INFO PANE -->
                 <div class="tab-pane" id="tab-pane-external">
                     <div class="pane-intro">
@@ -438,6 +497,36 @@
 
             <!-- Table Container with Loading / Empty / Data states -->
             <div class="table-responsive" id="inventoryTableContainer">
+                <!-- Dynamically populated by script.js -->
+            </div>
+        </section>
+
+        <!-- STOCK ACTIVITY SECTION -->
+        <section class="card stock-activity-card" id="stockActivitySection">
+            <div class="activity-header">
+                <div class="activity-title-group">
+                    <div class="table-title-row">
+                        <span class="table-icon">📜</span>
+                        <h2 class="table-card-title">Stock Activity & Movement History</h2>
+                        <span class="live-sync-badge">● Persistent Audit Log</span>
+                        <span class="table-count-pill" id="movementsCountPill">0 records</span>
+                    </div>
+                    <p class="table-card-subtitle">Complete chronological history of stock additions, deductions, and manual adjustments via SOAP <code>getStockMovements</code> (POST /ws)</p>
+                </div>
+                <div class="activity-controls">
+                    <div class="activity-filter-box">
+                        <label for="movementProductFilter">Filter by Product ID:</label>
+                        <input type="number" id="movementProductFilter" placeholder="All Products (or enter ID)" min="1" oninput="onMovementFilterChange()">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearMovementFilter()">Clear</button>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="fetchStockMovements(true)">
+                        <span>🔄 Refresh History</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Movements Table Container -->
+            <div class="table-responsive" id="movementsTableContainer">
                 <!-- Dynamically populated by script.js -->
             </div>
         </section>

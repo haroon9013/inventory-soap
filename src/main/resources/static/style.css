@@ -1905,3 +1905,212 @@ body {
     color: var(--primary);
 }
 
+/* ==========================================================================
+   Milestone 2: Stock Activity & Movement History
+   ========================================================================== */
+.form-group select,
+.form-select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--text-primary);
+    background-color: #fff;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.form-group select:focus,
+.form-select:focus {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.form-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.stock-activity-card {
+    margin-top: 24px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 24px;
+}
+
+.activity-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.activity-title-group {
+    flex: 1;
+    min-width: 280px;
+}
+
+.activity-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.activity-filter-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--bg-muted);
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.activity-filter-box label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.activity-filter-box input {
+    width: 140px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    background: #ffffff;
+    color: var(--text-primary);
+}
+
+.activity-filter-box input:focus {
+    outline: none;
+    border-color: var(--border-focus);
+}
+
+.movements-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+}
+
+.movements-table th {
+    background-color: var(--bg-muted);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-align: left;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.movements-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+
+.movements-table tr:last-child td {
+    border-bottom: none;
+}
+
+.movements-table tr:hover {
+    background-color: #f8fafc;
+}
+
+/* Movement Type Badges */
+.badge-movement {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+.badge-stock-in {
+    background-color: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+}
+
+.badge-stock-out {
+    background-color: #fff7ed;
+    color: #c2410c;
+    border: 1px solid #fed7aa;
+}
+
+.badge-stock-adjust {
+    background-color: #eef2ff;
+    color: #4f46e5;
+    border: 1px solid #c7d2fe;
+}
+
+/* Quantity Change formatting */
+.qty-change-pos {
+    color: #059669;
+    font-weight: 700;
+}
+
+.qty-change-neg {
+    color: #dc2626;
+    font-weight: 700;
+}
+
+.qty-change-zero {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.movement-timestamp {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.movement-product-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.movement-product-id {
+    color: var(--primary);
+    font-size: 12px;
+}
+
+.movement-reason {
+    color: var(--text-secondary);
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.movement-ref {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-muted);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: monospace;
+}
+
+

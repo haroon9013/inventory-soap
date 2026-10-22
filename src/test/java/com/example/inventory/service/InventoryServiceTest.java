@@ -8,13 +8,19 @@ import com.example.inventory.dto.ProductExternalInfoDto;
 import com.example.inventory.dto.SupplierAvailabilityDto;
 import com.example.inventory.dto.WeatherInfoDto;
 import com.example.inventory.entity.ProductEntity;
+import com.example.inventory.entity.StockMovementEntity;
+import com.example.inventory.generated.AdjustStockResponse;
 import com.example.inventory.generated.Product;
+import com.example.inventory.generated.StockMovement;
 import com.example.inventory.repository.ProductRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import com.example.inventory.repository.StockMovementRepository;
+import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,6 +30,7 @@ import static org.mockito.Mockito.*;
 class InventoryServiceTest {
 
     private ProductRepository productRepository;
+    private StockMovementRepository stockMovementRepository;
     private SupplierClient supplierClient;
     private FrankfurterClient frankfurterClient;
     private OpenMeteoClient openMeteoClient;
@@ -32,10 +39,11 @@ class InventoryServiceTest {
     @BeforeEach
     void setUp() {
         productRepository = mock(ProductRepository.class);
+        stockMovementRepository = mock(StockMovementRepository.class);
         supplierClient = mock(SupplierClient.class);
         frankfurterClient = mock(FrankfurterClient.class);
         openMeteoClient = mock(OpenMeteoClient.class);
-        inventoryService = new InventoryService(productRepository, supplierClient, frankfurterClient, openMeteoClient);
+        inventoryService = new InventoryService(productRepository, stockMovementRepository, supplierClient, frankfurterClient, openMeteoClient);
     }
 
     private Product createProduct(int id, String name, int quantity, double price, String category) {
@@ -335,5 +343,214 @@ class InventoryServiceTest {
         assertEquals(4999.50, product.getPrice());
         assertEquals("Hardware", product.getCategory());
         verify(productRepository).findAll();
+    }
+
+    @Test
+    void testAddProductWithInitialStockCreatesStockInMovement() {
+        Product product = createProduct(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.existsById(101)).thenReturn(false);
+
+        boolean added = inventoryService.addProduct(product);
+
+        assertTrue(added);
+        verify(productRepository).save(any(ProductEntity.class));
+        verify(stockMovementRepository).save(argThat(m ->
+                m.getProductId() == 101 &&
+                m.getMovementType().equals("STOCK_IN") &&
+                m.getPreviousQuantity() == 0 &&
+                m.getNewQuantity() == 10 &&
+                m.getQuantityChange() == 10
+        ));
+    }
+
+    @Test
+    void testAddProductWithZeroInitialStockCreatesNoMovement() {
+        Product product = createProduct(102, "Monitor", 0, 15000.0, "Electronics");
+        when(productRepository.existsById(102)).thenReturn(false);
+
+        boolean added = inventoryService.addProduct(product);
+
+        assertTrue(added);
+        verify(productRepository).save(any(ProductEntity.class));
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testUpdateProductStockIncreaseCreatesStockInMovement() {
+        when(productRepository.existsById(101)).thenReturn(true);
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        Product update = createProduct(101, "Laptop", 15, 50000.0, "Electronics");
+        boolean updated = inventoryService.updateProduct(update);
+
+        assertTrue(updated);
+        verify(stockMovementRepository).save(argThat(m ->
+                m.getProductId() == 101 &&
+                m.getMovementType().equals("STOCK_IN") &&
+                m.getPreviousQuantity() == 10 &&
+                m.getNewQuantity() == 15 &&
+                m.getQuantityChange() == 5
+        ));
+    }
+
+    @Test
+    void testUpdateProductStockDecreaseCreatesStockOutMovement() {
+        when(productRepository.existsById(101)).thenReturn(true);
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        Product update = createProduct(101, "Laptop", 4, 50000.0, "Electronics");
+        boolean updated = inventoryService.updateProduct(update);
+
+        assertTrue(updated);
+        verify(stockMovementRepository).save(argThat(m ->
+                m.getProductId() == 101 &&
+                m.getMovementType().equals("STOCK_OUT") &&
+                m.getPreviousQuantity() == 10 &&
+                m.getNewQuantity() == 4 &&
+                m.getQuantityChange() == -6
+        ));
+    }
+
+    @Test
+    void testUpdateProductPriceOnlyCreatesNoMovement() {
+        when(productRepository.existsById(101)).thenReturn(true);
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        Product update = createProduct(101, "Laptop Pro", 10, 55000.0, "Computing");
+        boolean updated = inventoryService.updateProduct(update);
+
+        assertTrue(updated);
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testAdjustStockTargetQuantitySuccess() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        AdjustStockResponse res = inventoryService.adjustStock(101, null, 25, "Restock batch arrived", "PO-1001");
+
+        assertTrue(res.isSuccess());
+        assertEquals(101, res.getProductId());
+        assertEquals(10, res.getPreviousQuantity());
+        assertEquals(25, res.getUpdatedQuantity());
+        assertNotNull(res.getMovement());
+        assertEquals("ADJUSTMENT", res.getMovement().getMovementType());
+        assertEquals(15, res.getMovement().getQuantityChange());
+        verify(stockMovementRepository).save(argThat(m ->
+                m.getMovementType().equals("ADJUSTMENT") &&
+                m.getQuantityChange() == 15 &&
+                m.getNewQuantity() == 25 &&
+                m.getReason().equals("Restock batch arrived")
+        ));
+    }
+
+    @Test
+    void testAdjustStockQuantityChangeSuccess() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        AdjustStockResponse res = inventoryService.adjustStock(101, -3, null, "Damaged in warehouse", "DMG-55");
+
+        assertTrue(res.isSuccess());
+        assertEquals(10, res.getPreviousQuantity());
+        assertEquals(7, res.getUpdatedQuantity());
+        assertEquals(-3, res.getMovement().getQuantityChange());
+        verify(stockMovementRepository).save(argThat(m ->
+                m.getMovementType().equals("ADJUSTMENT") &&
+                m.getQuantityChange() == -3 &&
+                m.getNewQuantity() == 7
+        ));
+    }
+
+    @Test
+    void testAdjustStockRejectsNegativeQuantity() {
+        ProductEntity existing = createEntity(101, "Laptop", 5, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        AdjustStockResponse res = inventoryService.adjustStock(101, -10, null, "Counting mistake", null);
+
+        assertFalse(res.isSuccess());
+        assertTrue(res.getMessage().contains("negative"));
+        assertEquals(5, res.getPreviousQuantity());
+        assertEquals(5, res.getUpdatedQuantity());
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testAdjustStockProductNotFound() {
+        when(productRepository.findById(999)).thenReturn(Optional.empty());
+
+        AdjustStockResponse res = inventoryService.adjustStock(999, 5, null, "Test", null);
+
+        assertFalse(res.isSuccess());
+        assertTrue(res.getMessage().contains("not found"));
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testAdjustStockNoQuantityProvided() {
+        ProductEntity existing = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.findById(101)).thenReturn(Optional.of(existing));
+
+        AdjustStockResponse res = inventoryService.adjustStock(101, null, null, "Missing params", null);
+
+        assertFalse(res.isSuccess());
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
+    }
+
+    @Test
+    void testGetStockMovementsAll() {
+        StockMovementEntity m1 = new StockMovementEntity(101, "Laptop", "STOCK_IN", 0, 10, 10, "Initial", LocalDateTime.now(), "ADD");
+        when(stockMovementRepository.findAllByOrderByTimestampDescIdDesc(any(Pageable.class))).thenReturn(List.of(m1));
+
+        List<StockMovement> list = inventoryService.getStockMovements(null, 50);
+
+        assertNotNull(list);
+        assertEquals(1, list.size());
+        assertEquals(101, list.get(0).getProductId());
+        assertEquals("Laptop", list.get(0).getProductName());
+        verify(stockMovementRepository).findAllByOrderByTimestampDescIdDesc(any(Pageable.class));
+    }
+
+    @Test
+    void testGetStockMovementsFilteredByProduct() {
+        StockMovementEntity m1 = new StockMovementEntity(202, "Desk Chair", "ADJUSTMENT", 5, 8, 3, "Audit", LocalDateTime.now(), "AUD");
+        when(stockMovementRepository.findByProductIdOrderByTimestampDescIdDesc(eq(202), any(Pageable.class))).thenReturn(List.of(m1));
+
+        List<StockMovement> list = inventoryService.getStockMovements(202, 10);
+
+        assertNotNull(list);
+        assertEquals(1, list.size());
+        assertEquals(202, list.get(0).getProductId());
+        assertEquals("Desk Chair", list.get(0).getProductName());
+        assertEquals(3, list.get(0).getQuantityChange());
+        verify(stockMovementRepository).findByProductIdOrderByTimestampDescIdDesc(eq(202), any(Pageable.class));
+    }
+
+    @Test
+    void testDeleteProductPreservesHistoricalStockMovements() {
+        when(productRepository.existsById(101)).thenReturn(true);
+
+        boolean deleted = inventoryService.deleteProduct(101);
+
+        assertTrue(deleted);
+        verify(productRepository).deleteById(101);
+        verifyNoInteractions(stockMovementRepository);
+    }
+
+    @Test
+    void testFailedAddDoesNotCreateMovement() {
+        Product product = createProduct(101, "Laptop", 10, 50000.0, "Electronics");
+        when(productRepository.existsById(101)).thenReturn(true);
+
+        boolean added = inventoryService.addProduct(product);
+
+        assertFalse(added);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+        verify(stockMovementRepository, never()).save(any(StockMovementEntity.class));
     }
 }

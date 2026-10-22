@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+    xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+    xmlns:inv="http://example.com/inventory">
+
+    <soap:Header/>
+
+    <soap:Body>
+        <inv:AdjustStockRequest>
+            <inv:productId>101</inv:productId>
+            <!-- Provide either signed quantityChange (+5 or -3) OR targetQuantity (e.g. 25) -->
+            <inv:quantityChange>5</inv:quantityChange>
+            <inv:reason>Physical warehouse cycle count audit correction</inv:reason>
+            <inv:reference>AUDIT-2026-Q4</inv:reference>
+        </inv:AdjustStockRequest>
+    </soap:Body>
+
+</soap:Envelope>

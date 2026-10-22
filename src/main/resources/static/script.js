@@ -12,6 +12,7 @@ const LOW_STOCK_THRESHOLD = 5;
 // Initialize on page load: retrieve persisted inventory from backend via SOAP
 document.addEventListener("DOMContentLoaded", () => {
     fetchAllProducts();
+    fetchStockMovements();
 });
 
 // --------------------------------------------------------------------------
@@ -145,7 +146,7 @@ async function callSoapService(operationName, bodyPayloadXml) {
 // Tab Navigation
 // --------------------------------------------------------------------------
 function switchTab(tabId) {
-    const validTabs = ["add", "get", "update", "delete", "external"];
+    const validTabs = ["add", "get", "update", "delete", "adjust", "external"];
     if (!validTabs.includes(tabId)) return;
 
     // Update tab buttons
@@ -294,6 +295,7 @@ async function addProduct() {
         showResult(message, "success", "SOAP: addProduct");
         renderSoapResponseCard("addProduct", "SUCCESS", message, product, result.rawXml);
         await fetchAllProducts(false, "SOAP Added #" + product.id);
+        await fetchStockMovements(false);
     } else {
         showResult(message, "error", "SOAP: addProduct");
         renderSoapResponseCard("addProduct", "FAILED", message, product, result.rawXml);
@@ -423,6 +425,7 @@ async function updateProduct() {
         showResult(message, "success", "SOAP: updateProduct");
         renderSoapResponseCard("updateProduct", "SUCCESS", message, product, result.rawXml);
         await fetchAllProducts(false, "SOAP Updated #" + product.id);
+        await fetchStockMovements(false);
     } else {
         showResult(message, "error", "SOAP: updateProduct");
         renderSoapResponseCard("updateProduct", "FAILED", message, product, result.rawXml);
@@ -477,6 +480,7 @@ async function deleteProduct() {
             badge.style.color = "#dc2626";
         }
         await fetchAllProducts(false, "SOAP Deleted #" + id);
+        await fetchStockMovements(false);
     } else {
         showResult(message, "error", "SOAP: deleteProduct");
         renderSoapResponseCard("deleteProduct", "FAILED", message, { id: id }, result.rawXml);
@@ -1409,6 +1413,9 @@ function renderInventoryTable() {
                     <button type="button" class="table-action-btn" title="Load into Update Form" onclick="loadProductToUpdate(${p.id})">
                         ✏️ Edit
                     </button>
+                    <button type="button" class="table-action-btn" title="Adjust Stock" onclick="loadProductToAdjust(${p.id})">
+                        ⚖️ Adjust
+                    </button>
                 </td>
             </tr>
         `;
@@ -1460,6 +1467,392 @@ function clearInventoryFilters() {
 
 function scrollToInventoryTable() {
     const section = document.getElementById("inventoryOverviewSection");
+    if (section) {
+        section.scrollIntoView({ behavior: "smooth" });
+    }
+}
+
+// --------------------------------------------------------------------------
+// Milestone 2: Stock Adjustment & Movement History Functions
+// --------------------------------------------------------------------------
+
+function onAdjustModeChange() {
+    const mode = document.getElementById("adjustMode").value;
+    const label = document.getElementById("adjustQuantityLabel");
+    const hint = document.getElementById("adjustQuantityHint");
+    const input = document.getElementById("adjustQuantity");
+
+    if (mode === "target") {
+        if (label) label.innerHTML = `Target Quantity (Absolute Stock Level) <span class="required">*</span>`;
+        if (hint) hint.textContent = "Specify the exact desired final stock quantity (must be 0 or greater).";
+        if (input) {
+            input.placeholder = "e.g. 50";
+            input.min = "0";
+        }
+    } else {
+        if (label) label.innerHTML = `Quantity Change (e.g. +5 or -3) <span class="required">*</span>`;
+        if (hint) hint.textContent = "Enter positive number to add stock, negative to deduct stock.";
+        if (input) {
+            input.placeholder = "e.g. 5 or -2";
+            input.removeAttribute("min");
+        }
+    }
+}
+
+function clearAdjustForm() {
+    const idEl = document.getElementById("adjustId");
+    const modeEl = document.getElementById("adjustMode");
+    const qtyEl = document.getElementById("adjustQuantity");
+    const reasonEl = document.getElementById("adjustReason");
+    const refEl = document.getElementById("adjustReference");
+
+    if (idEl) idEl.value = "";
+    if (modeEl) {
+        modeEl.value = "change";
+        onAdjustModeChange();
+    }
+    if (qtyEl) qtyEl.value = "";
+    if (reasonEl) reasonEl.value = "";
+    if (refEl) refEl.value = "";
+}
+
+function loadProductToAdjust(productId) {
+    const product = productCache.get(productId);
+    if (product) {
+        displayProduct(product);
+        const idEl = document.getElementById("adjustId");
+        if (idEl) idEl.value = product.id;
+        switchTab("adjust");
+        const adjustSection = document.getElementById("tab-pane-adjust");
+        if (adjustSection) adjustSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+}
+
+async function adjustStock() {
+    const idRaw = document.getElementById("adjustId").value.trim();
+    const mode = document.getElementById("adjustMode").value;
+    const qtyRaw = document.getElementById("adjustQuantity").value.trim();
+    const reason = document.getElementById("adjustReason").value.trim();
+    const reference = document.getElementById("adjustReference").value.trim();
+
+    // Validation
+    if (!idRaw || isNaN(idRaw) || parseInt(idRaw, 10) <= 0) {
+        showResult("Please enter a valid positive Product ID for stock adjustment.", "error", "Validation Error");
+        return;
+    }
+    const productId = parseInt(idRaw, 10);
+
+    if (qtyRaw === "" || isNaN(qtyRaw)) {
+        showResult("Please specify a valid quantity value.", "error", "Validation Error");
+        return;
+    }
+    const qtyNum = parseInt(qtyRaw, 10);
+
+    if (!reason) {
+        showResult("An audit reason/note is required for stock adjustments.", "error", "Validation Error");
+        return;
+    }
+
+    let soapPayload = `<inv:AdjustStockRequest>
+        <inv:productId>${productId}</inv:productId>
+`;
+
+    if (mode === "target") {
+        if (qtyNum < 0) {
+            showResult("Target quantity cannot be negative.", "error", "Validation Error");
+            return;
+        }
+        soapPayload += `        <inv:targetQuantity>${qtyNum}</inv:targetQuantity>
+`;
+    } else {
+        if (qtyNum === 0) {
+            showResult("Quantity change cannot be zero. Specify a positive or negative change.", "error", "Validation Error");
+            return;
+        }
+        soapPayload += `        <inv:quantityChange>${qtyNum}</inv:quantityChange>
+`;
+    }
+
+    soapPayload += `        <inv:reason>${escapeXml(reason)}</inv:reason>
+`;
+    if (reference) {
+        soapPayload += `        <inv:reference>${escapeXml(reference)}</inv:reference>
+`;
+    }
+    soapPayload += `    </inv:AdjustStockRequest>`;
+
+    showResult(`Submitting stock adjustment for Product #${productId}...`, "info", "SOAP: AdjustStock");
+
+    const result = await callSoapService("adjustStock", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "Failed to communicate with SOAP service for stock adjustment.";
+        showResult(errorMsg, "error", "SOAP: adjustStock");
+        renderSoapResponseCard("adjustStock", "FAULT", errorMsg, null, result.rawXml);
+        return;
+    }
+
+    const responseNode = getXmlNode(result.xmlDoc, "AdjustStockResponse");
+    const successStr = getXmlValue(responseNode, "success");
+    const isSuccess = successStr.toLowerCase() === "true";
+    const message = getXmlValue(responseNode, "message") || (isSuccess ? "Stock adjusted successfully" : "Failed to adjust stock");
+    const updatedQuantityStr = getXmlValue(responseNode, "updatedQuantity");
+    const updatedQuantity = updatedQuantityStr ? parseInt(updatedQuantityStr, 10) : null;
+
+    if (isSuccess) {
+        showResult(message, "success", "SOAP: adjustStock");
+        renderSoapResponseCard("adjustStock", "SUCCESS", message, {
+            id: productId,
+            quantity: updatedQuantity !== null ? updatedQuantity : "Updated"
+        }, result.rawXml);
+
+        clearAdjustForm();
+
+        // Refresh all products via SOAP getAllProducts
+        await fetchAllProducts(false, `SOAP: Adjusted #${productId} -> ${updatedQuantity} units`);
+
+        // Refresh stock movements via SOAP getStockMovements
+        await fetchStockMovements(false);
+
+        // If product was currently selected in detail card, refresh it
+        const currentProd = productCache.get(productId);
+        if (currentProd) {
+            displayProduct(currentProd);
+        }
+    } else {
+        showResult(message, "error", "SOAP: adjustStock");
+        renderSoapResponseCard("adjustStock", "FAILED", message, { id: productId }, result.rawXml);
+    }
+}
+
+let currentMovementFilterProductId = null;
+
+async function fetchStockMovements(isManualRefresh = false) {
+    const container = document.getElementById("movementsTableContainer");
+    const countPill = document.getElementById("movementsCountPill");
+
+    if (container && (!container.children || container.children.length === 0 || isManualRefresh)) {
+        container.innerHTML = `
+            <div class="table-loading">
+                <span class="supplier-spinner">🔄</span>
+                <span>Retrieving stock movement history from backend via SOAP getStockMovements (/ws)...</span>
+            </div>
+        `;
+    }
+
+    let soapPayload = `<inv:GetStockMovementsRequest>`;
+    if (currentMovementFilterProductId) {
+        soapPayload += `<inv:productId>${currentMovementFilterProductId}</inv:productId>`;
+    }
+    soapPayload += `<inv:maxRecords>100</inv:maxRecords>`;
+    soapPayload += `</inv:GetStockMovementsRequest>`;
+
+    const result = await callSoapService("getStockMovements", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "SOAP service communication failure while loading stock movements.";
+        if (container) {
+            container.innerHTML = `
+                <div class="table-empty-state">
+                    <div class="table-empty-icon">⚠️</div>
+                    <h3 class="table-empty-title">Failed to Load Movement History</h3>
+                    <p class="table-empty-desc">${escapeXml(errorMsg)}</p>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="fetchStockMovements(true)">
+                        🔄 Retry Connection
+                    </button>
+                </div>
+            `;
+        }
+        if (isManualRefresh) {
+            showResult(errorMsg, "error", "SOAP: getStockMovements");
+            renderSoapResponseCard("getStockMovements", "FAULT", errorMsg, null, result.rawXml);
+        }
+        return;
+    }
+
+    const responseNode = getXmlNode(result.xmlDoc, "GetStockMovementsResponse");
+    const movements = [];
+
+    if (responseNode) {
+        let nodes = responseNode.getElementsByTagNameNS(SOAP_NAMESPACE, "movements");
+        if (!nodes || nodes.length === 0) {
+            nodes = responseNode.getElementsByTagName("movements");
+        }
+        if (!nodes || nodes.length === 0) {
+            nodes = responseNode.getElementsByTagNameNS(SOAP_NAMESPACE, "movement");
+        }
+        if (!nodes || nodes.length === 0) {
+            nodes = responseNode.getElementsByTagName("movement");
+        }
+
+        for (let i = 0; i < nodes.length; i++) {
+            const node = nodes[i];
+            const idVal = getXmlValue(node, "id");
+            if (idVal) {
+                movements.push({
+                    id: parseInt(idVal, 10),
+                    productId: parseInt(getXmlValue(node, "productId") || "0", 10),
+                    productName: getXmlValue(node, "productName"),
+                    movementType: getXmlValue(node, "movementType"),
+                    previousQuantity: parseInt(getXmlValue(node, "previousQuantity") || "0", 10),
+                    newQuantity: parseInt(getXmlValue(node, "newQuantity") || "0", 10),
+                    quantityChange: parseInt(getXmlValue(node, "quantityChange") || "0", 10),
+                    reason: getXmlValue(node, "reason"),
+                    timestamp: getXmlValue(node, "timestamp"),
+                    reference: getXmlValue(node, "reference")
+                });
+            }
+        }
+    }
+
+    renderStockMovementsTable(movements);
+
+    if (isManualRefresh) {
+        showResult(`Retrieved ${movements.length} stock movement records from database.`, "success", "SOAP: getStockMovements");
+        renderSoapResponseCard("getStockMovements", "SUCCESS", `Loaded ${movements.length} persistent movement audit records`, null, result.rawXml);
+    }
+}
+
+function renderStockMovementsTable(movements) {
+    const container = document.getElementById("movementsTableContainer");
+    const countPill = document.getElementById("movementsCountPill");
+    if (!container) return;
+
+    if (countPill) {
+        countPill.textContent = `${movements.length} ${movements.length === 1 ? 'record' : 'records'}`;
+    }
+
+    if (!movements || movements.length === 0) {
+        container.innerHTML = `
+            <div class="table-empty-state">
+                <div class="table-empty-icon">📜</div>
+                <h3 class="table-empty-title">No Stock Movement History Found</h3>
+                <p class="table-empty-desc">${currentMovementFilterProductId ? `No stock movements recorded for Product #${currentMovementFilterProductId}.` : 'Stock movements will appear here when products are added, updated, or adjusted.'}</p>
+                ${currentMovementFilterProductId ? `
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="clearMovementFilter()">
+                        Clear Product Filter
+                    </button>
+                ` : ''}
+            </div>
+        `;
+        return;
+    }
+
+    let tableHtml = `
+        <table class="movements-table">
+            <thead>
+                <tr>
+                    <th style="width: 155px;">Timestamp</th>
+                    <th>Product</th>
+                    <th style="width: 130px;">Movement Type</th>
+                    <th style="text-align: right; width: 90px;">Previous</th>
+                    <th style="text-align: center; width: 100px;">Change</th>
+                    <th style="text-align: right; width: 90px;">New Qty</th>
+                    <th>Audit Reason / Note</th>
+                    <th style="width: 120px;">Reference</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    movements.forEach(m => {
+        let typeBadge = "";
+        if (m.movementType === "STOCK_IN") {
+            typeBadge = `<span class="badge-movement badge-stock-in">⬇ STOCK IN</span>`;
+        } else if (m.movementType === "STOCK_OUT") {
+            typeBadge = `<span class="badge-movement badge-stock-out">⬆ STOCK OUT</span>`;
+        } else if (m.movementType === "ADJUSTMENT") {
+            typeBadge = `<span class="badge-movement badge-stock-adjust">⚖ ADJUSTMENT</span>`;
+        } else {
+            typeBadge = `<span class="badge-movement">${escapeXml(m.movementType)}</span>`;
+        }
+
+        let changeClass = "qty-change-zero";
+        let changeSign = "";
+        if (m.quantityChange > 0) {
+            changeClass = "qty-change-pos";
+            changeSign = "+" + m.quantityChange;
+        } else if (m.quantityChange < 0) {
+            changeClass = "qty-change-neg";
+            changeSign = "" + m.quantityChange;
+        } else {
+            changeSign = "0";
+        }
+
+        let formattedTime = m.timestamp || "-";
+        try {
+            if (m.timestamp) {
+                const dateObj = new Date(m.timestamp);
+                if (!isNaN(dateObj.getTime())) {
+                    formattedTime = dateObj.toLocaleDateString("en-IN", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric"
+                    }) + " " + dateObj.toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit"
+                    });
+                }
+            }
+        } catch (e) {
+            formattedTime = m.timestamp;
+        }
+
+        const displayName = m.productName ? escapeXml(m.productName) : "(Deleted / Unnamed)";
+
+        tableHtml += `
+            <tr>
+                <td class="movement-timestamp">${formattedTime}</td>
+                <td>
+                    <div class="movement-product-tag">
+                        <span class="movement-product-id">#${m.productId}</span>
+                        <span>${displayName}</span>
+                    </div>
+                </td>
+                <td>${typeBadge}</td>
+                <td style="text-align: right; font-variant-numeric: tabular-nums;">${m.previousQuantity}</td>
+                <td style="text-align: center;" class="${changeClass}">${changeSign}</td>
+                <td style="text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">${m.newQuantity}</td>
+                <td class="movement-reason" title="${escapeXml(m.reason || '')}">${escapeXml(m.reason || '-')}</td>
+                <td>${m.reference ? `<span class="movement-ref">${escapeXml(m.reference)}</span>` : '<span style="color:var(--text-muted);">-</span>'}</td>
+            </tr>
+        `;
+    });
+
+    tableHtml += `
+            </tbody>
+        </table>
+    `;
+
+    container.innerHTML = tableHtml;
+}
+
+let movementFilterTimeout = null;
+
+function onMovementFilterChange() {
+    clearTimeout(movementFilterTimeout);
+    movementFilterTimeout = setTimeout(() => {
+        const input = document.getElementById("movementProductFilter");
+        const val = input ? input.value.trim() : "";
+        if (val && !isNaN(val) && parseInt(val, 10) > 0) {
+            currentMovementFilterProductId = parseInt(val, 10);
+        } else {
+            currentMovementFilterProductId = null;
+        }
+        fetchStockMovements(false);
+    }, 300);
+}
+
+function clearMovementFilter() {
+    const input = document.getElementById("movementProductFilter");
+    if (input) input.value = "";
+    currentMovementFilterProductId = null;
+    fetchStockMovements(false);
+}
+
+function scrollToStockActivity() {
+    const section = document.getElementById("stockActivitySection");
     if (section) {
         section.scrollIntoView({ behavior: "smooth" });
     }

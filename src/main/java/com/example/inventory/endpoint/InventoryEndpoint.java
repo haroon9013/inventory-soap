@@ -4,6 +4,8 @@ import com.example.inventory.dto.ProductExternalInfoDto;
 import com.example.inventory.dto.SupplierAvailabilityDto;
 import com.example.inventory.generated.AddProductRequest;
 import com.example.inventory.generated.AddProductResponse;
+import com.example.inventory.generated.AdjustStockRequest;
+import com.example.inventory.generated.AdjustStockResponse;
 import com.example.inventory.generated.CheckSupplierAvailabilityRequest;
 import com.example.inventory.generated.CheckSupplierAvailabilityResponse;
 import com.example.inventory.generated.CurrencyInfo;
@@ -15,7 +17,10 @@ import com.example.inventory.generated.GetProductExternalInfoRequest;
 import com.example.inventory.generated.GetProductExternalInfoResponse;
 import com.example.inventory.generated.GetProductRequest;
 import com.example.inventory.generated.GetProductResponse;
+import com.example.inventory.generated.GetStockMovementsRequest;
+import com.example.inventory.generated.GetStockMovementsResponse;
 import com.example.inventory.generated.Product;
+import com.example.inventory.generated.StockMovement;
 import com.example.inventory.generated.SupplierInfo;
 import com.example.inventory.generated.UpdateProductRequest;
 import com.example.inventory.generated.UpdateProductResponse;
@@ -25,6 +30,8 @@ import org.springframework.ws.server.endpoint.annotation.Endpoint;
 import org.springframework.ws.server.endpoint.annotation.PayloadRoot;
 import org.springframework.ws.server.endpoint.annotation.RequestPayload;
 import org.springframework.ws.server.endpoint.annotation.ResponsePayload;
+
+import java.util.List;
 
 @Endpoint
 public class InventoryEndpoint {
@@ -43,6 +50,29 @@ public class InventoryEndpoint {
         GetAllProductsResponse response = new GetAllProductsResponse();
         response.getProducts().addAll(inventoryService.getAllProducts());
         return response;
+    }
+
+    @PayloadRoot(namespace = NAMESPACE, localPart = "GetStockMovementsRequest")
+    @ResponsePayload
+    public GetStockMovementsResponse getStockMovements(@RequestPayload GetStockMovementsRequest request) {
+        GetStockMovementsResponse response = new GetStockMovementsResponse();
+        Integer productId = (request.getProductId() != null && request.getProductId() > 0) ? request.getProductId() : null;
+        Integer maxRecords = (request.getMaxRecords() != null && request.getMaxRecords() > 0) ? request.getMaxRecords() : null;
+        List<StockMovement> movements = inventoryService.getStockMovements(productId, maxRecords);
+        response.getMovements().addAll(movements);
+        return response;
+    }
+
+    @PayloadRoot(namespace = NAMESPACE, localPart = "AdjustStockRequest")
+    @ResponsePayload
+    public AdjustStockResponse adjustStock(@RequestPayload AdjustStockRequest request) {
+        return inventoryService.adjustStock(
+                request.getProductId(),
+                request.getQuantityChange(),
+                request.getTargetQuantity(),
+                request.getReason(),
+                request.getReference()
+        );
     }
 
     @PayloadRoot(namespace = NAMESPACE, localPart = "AddProductRequest")

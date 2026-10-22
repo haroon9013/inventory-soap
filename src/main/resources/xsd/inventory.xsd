@@ -186,4 +186,65 @@
         </xs:complexType>
     </xs:element>
 
+
+    <!-- Stock Movement definition -->
+    <xs:complexType name="StockMovement">
+        <xs:sequence>
+            <xs:element name="id" type="xs:long"/>
+            <xs:element name="productId" type="xs:int"/>
+            <xs:element name="productName" type="xs:string"/>
+            <xs:element name="movementType" type="xs:string"/>
+            <xs:element name="previousQuantity" type="xs:int"/>
+            <xs:element name="newQuantity" type="xs:int"/>
+            <xs:element name="quantityChange" type="xs:int"/>
+            <xs:element name="reason" type="xs:string"/>
+            <xs:element name="timestamp" type="xs:string"/>
+            <xs:element name="reference" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Get Stock Movements -->
+    <xs:element name="GetStockMovementsRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="productId" type="xs:int" minOccurs="0"/>
+                <xs:element name="maxRecords" type="xs:int" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="GetStockMovementsResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="movements" type="tns:StockMovement" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Adjust Stock -->
+    <xs:element name="AdjustStockRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="productId" type="xs:int"/>
+                <xs:element name="quantityChange" type="xs:int" minOccurs="0"/>
+                <xs:element name="targetQuantity" type="xs:int" minOccurs="0"/>
+                <xs:element name="reason" type="xs:string"/>
+                <xs:element name="reference" type="xs:string" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="AdjustStockResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="success" type="xs:boolean"/>
+                <xs:element name="message" type="xs:string"/>
+                <xs:element name="productId" type="xs:int"/>
+                <xs:element name="previousQuantity" type="xs:int"/>
+                <xs:element name="updatedQuantity" type="xs:int"/>
+                <xs:element name="movement" type="tns:StockMovement" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
 </xs:schema>

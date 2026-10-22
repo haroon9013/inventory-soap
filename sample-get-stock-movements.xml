@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope
+    xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+    xmlns:inv="http://example.com/inventory">
+
+    <soap:Header/>
+
+    <soap:Body>
+        <inv:GetStockMovementsRequest>
+            <!-- Optional product ID filter (omit or set to 0 for all products) -->
+            <inv:productId>101</inv:productId>
+            <!-- Optional maximum number of records (default is 100) -->
+            <inv:maxRecords>50</inv:maxRecords>
+        </inv:GetStockMovementsRequest>
+    </soap:Body>
+
+</soap:Envelope>
