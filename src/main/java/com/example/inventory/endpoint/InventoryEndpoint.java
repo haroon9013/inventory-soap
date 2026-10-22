@@ -9,6 +9,8 @@ import com.example.inventory.generated.CheckSupplierAvailabilityResponse;
 import com.example.inventory.generated.CurrencyInfo;
 import com.example.inventory.generated.DeleteProductRequest;
 import com.example.inventory.generated.DeleteProductResponse;
+import com.example.inventory.generated.GetAllProductsRequest;
+import com.example.inventory.generated.GetAllProductsResponse;
 import com.example.inventory.generated.GetProductExternalInfoRequest;
 import com.example.inventory.generated.GetProductExternalInfoResponse;
 import com.example.inventory.generated.GetProductRequest;
@@ -18,13 +20,6 @@ import com.example.inventory.generated.SupplierInfo;
 import com.example.inventory.generated.UpdateProductRequest;
 import com.example.inventory.generated.UpdateProductResponse;
 import com.example.inventory.generated.WeatherInfo;
-import com.example.inventory.generated.DeleteProductRequest;
-import com.example.inventory.generated.DeleteProductResponse;
-import com.example.inventory.generated.GetProductRequest;
-import com.example.inventory.generated.GetProductResponse;
-import com.example.inventory.generated.Product;
-import com.example.inventory.generated.UpdateProductRequest;
-import com.example.inventory.generated.UpdateProductResponse;
 import com.example.inventory.service.InventoryService;
 import org.springframework.ws.server.endpoint.annotation.Endpoint;
 import org.springframework.ws.server.endpoint.annotation.PayloadRoot;
@@ -40,6 +35,14 @@ public class InventoryEndpoint {
 
     public InventoryEndpoint(InventoryService inventoryService) {
         this.inventoryService = inventoryService;
+    }
+
+    @PayloadRoot(namespace = NAMESPACE, localPart = "GetAllProductsRequest")
+    @ResponsePayload
+    public GetAllProductsResponse getAllProducts(@RequestPayload GetAllProductsRequest request) {
+        GetAllProductsResponse response = new GetAllProductsResponse();
+        response.getProducts().addAll(inventoryService.getAllProducts());
+        return response;
     }
 
     @PayloadRoot(namespace = NAMESPACE, localPart = "AddProductRequest")

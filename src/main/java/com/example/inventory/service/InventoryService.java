@@ -13,6 +13,7 @@ import com.example.inventory.generated.Product;
 import com.example.inventory.repository.ProductRepository;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -40,6 +41,13 @@ public class InventoryService {
 
     public InventoryService(ProductRepository productRepository) {
         this(productRepository, null, null, null);
+    }
+
+    public List<Product> getAllProducts() {
+        return productRepository.findAll()
+                .stream()
+                .map(this::toDto)
+                .toList();
     }
 
     public boolean addProduct(Product product) {

@@ -13,6 +13,7 @@ import com.example.inventory.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -288,5 +289,51 @@ class InventoryServiceTest {
         assertNotNull(result.getSupplierInfo());
         assertNotNull(result.getCurrencyInfo());
         assertNotNull(result.getWeatherInfo());
+    }
+
+    @Test
+    void testGetAllProductsEmpty() {
+        when(productRepository.findAll()).thenReturn(List.of());
+
+        List<Product> products = inventoryService.getAllProducts();
+
+        assertNotNull(products);
+        assertTrue(products.isEmpty());
+        verify(productRepository).findAll();
+    }
+
+    @Test
+    void testGetAllProductsPopulated() {
+        ProductEntity e1 = createEntity(101, "Laptop", 10, 50000.0, "Electronics");
+        ProductEntity e2 = createEntity(102, "Wireless Mouse", 30, 1500.0, "Peripherals");
+        when(productRepository.findAll()).thenReturn(List.of(e1, e2));
+
+        List<Product> products = inventoryService.getAllProducts();
+
+        assertNotNull(products);
+        assertEquals(2, products.size());
+        assertEquals(101, products.get(0).getId());
+        assertEquals("Laptop", products.get(0).getName());
+        assertEquals(102, products.get(1).getId());
+        assertEquals("Wireless Mouse", products.get(1).getName());
+        verify(productRepository).findAll();
+    }
+
+    @Test
+    void testGetAllProductsFieldMapping() {
+        ProductEntity entity = createEntity(205, "Mechanical Gaming Keyboard", 4, 4999.50, "Hardware");
+        when(productRepository.findAll()).thenReturn(List.of(entity));
+
+        List<Product> products = inventoryService.getAllProducts();
+
+        assertNotNull(products);
+        assertEquals(1, products.size());
+        Product product = products.get(0);
+        assertEquals(205, product.getId());
+        assertEquals("Mechanical Gaming Keyboard", product.getName());
+        assertEquals(4, product.getQuantity());
+        assertEquals(4999.50, product.getPrice());
+        assertEquals("Hardware", product.getCategory());
+        verify(productRepository).findAll();
     }
 }

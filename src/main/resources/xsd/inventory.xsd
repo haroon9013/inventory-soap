@@ -172,4 +172,18 @@
         </xs:complexType>
     </xs:element>
 
+
+    <!-- Get All Products -->
+    <xs:element name="GetAllProductsRequest">
+        <xs:complexType/>
+    </xs:element>
+
+    <xs:element name="GetAllProductsResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="products" type="tns:Product" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
 </xs:schema>

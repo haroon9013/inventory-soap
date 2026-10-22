@@ -37,6 +37,7 @@
             <button class="nav-item" id="nav-update" onclick="switchTab('update')">
                 <span class="nav-icon">✏️</span>
                 <span>Update Product</span>
+            </button>
             <button class="nav-item" id="nav-delete" onclick="switchTab('delete')">
                 <span class="nav-icon">🗑️</span>
                 <span>Delete Product</span>
@@ -44,6 +45,10 @@
             <button class="nav-item" id="nav-external" onclick="switchTab('external')">
                 <span class="nav-icon">🌐</span>
                 <span>External Info</span>
+            </button>
+            <button class="nav-item" id="nav-table" onclick="scrollToInventoryTable()">
+                <span class="nav-icon">📋</span>
+                <span>Inventory Table</span>
             </button>
         </nav>
 
@@ -113,7 +118,7 @@
                 <div class="stat-content">
                     <div class="stat-label">Total Products</div>
                     <div class="stat-value" id="statTotalProducts">0</div>
-                    <div class="stat-hint">Active session cache</div>
+                    <div class="stat-hint">Persisted database records</div>
                 </div>
             </div>
 
@@ -401,6 +406,41 @@
             </section>
 
         </div>
+        <!-- END WORKSPACE GRID -->
+
+        <!-- INVENTORY OVERVIEW TABLE -->
+        <section class="card inventory-table-card" id="inventoryOverviewSection">
+            <div class="inventory-table-header">
+                <div class="inventory-table-title-group">
+                    <div class="table-title-row">
+                        <span class="table-icon">📋</span>
+                        <h2 class="table-card-title">Inventory Overview</h2>
+                        <span class="live-sync-badge" id="tableSyncBadge">● Live Database</span>
+                        <span class="table-count-pill" id="tableProductCount">0 items</span>
+                    </div>
+                    <p class="table-card-subtitle">Real-time inventory records synchronized via SOAP <code>getAllProducts</code> (POST /ws)</p>
+                </div>
+                <div class="inventory-table-controls">
+                    <div class="filter-group">
+                        <label for="filterLowStockToggle" class="filter-toggle-label">
+                            <input type="checkbox" id="filterLowStockToggle" onchange="toggleLowStockFilter()">
+                            <span class="toggle-text">⚠️ Low Stock Only (&lt; 5 units)</span>
+                        </label>
+                    </div>
+                    <div class="search-group">
+                        <input type="text" id="inventorySearchInput" placeholder="Filter by ID, name, category..." oninput="filterInventoryTable()">
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="fetchAllProducts(true)">
+                        <span>🔄 Refresh</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Table Container with Loading / Empty / Data states -->
+            <div class="table-responsive" id="inventoryTableContainer">
+                <!-- Dynamically populated by script.js -->
+            </div>
+        </section>
 
     </main>
 

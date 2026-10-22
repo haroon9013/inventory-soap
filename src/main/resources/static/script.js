@@ -3,12 +3,15 @@
 // All CRUD and External Orchestration operations communicate via POST /ws
 // ==========================================================================
 
-// Client-side cache to track products during active session
+// Client-side cache synchronized with backend database via SOAP getAllProducts
 const productCache = new Map();
 
-// Initialize on page load
+// Configurable threshold for low-stock warning (items below this quantity are flagged)
+const LOW_STOCK_THRESHOLD = 5;
+
+// Initialize on page load: retrieve persisted inventory from backend via SOAP
 document.addEventListener("DOMContentLoaded", () => {
-    updateStatistics("System Ready");
+    fetchAllProducts();
 });
 
 // --------------------------------------------------------------------------
@@ -286,12 +289,11 @@ async function addProduct() {
     const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product added successfully via SOAP" : "Failed to add product");
 
     if (isSuccess) {
-        productCache.set(product.id, product);
-        updateStatistics("SOAP Added #" + product.id);
         displayProduct(product);
         clearAddForm();
         showResult(message, "success", "SOAP: addProduct");
         renderSoapResponseCard("addProduct", "SUCCESS", message, product, result.rawXml);
+        await fetchAllProducts(false, "SOAP Added #" + product.id);
     } else {
         showResult(message, "error", "SOAP: addProduct");
         renderSoapResponseCard("addProduct", "FAILED", message, product, result.rawXml);
@@ -416,12 +418,11 @@ async function updateProduct() {
     const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product updated successfully via SOAP" : "Failed to update product");
 
     if (isSuccess) {
-        productCache.set(product.id, product);
-        updateStatistics("SOAP Updated #" + product.id);
         displayProduct(product);
         clearUpdateForm();
         showResult(message, "success", "SOAP: updateProduct");
         renderSoapResponseCard("updateProduct", "SUCCESS", message, product, result.rawXml);
+        await fetchAllProducts(false, "SOAP Updated #" + product.id);
     } else {
         showResult(message, "error", "SOAP: updateProduct");
         renderSoapResponseCard("updateProduct", "FAILED", message, product, result.rawXml);
@@ -465,8 +466,6 @@ async function deleteProduct() {
     const message = getXmlValue(responseNode, "message") || (isSuccess ? "Product deleted successfully via SOAP" : "Failed to delete product");
 
     if (isSuccess) {
-        productCache.delete(id);
-        updateStatistics("SOAP Deleted #" + id);
         showResult(message, "success", "SOAP: deleteProduct");
         renderSoapResponseCard("deleteProduct", "SUCCESS", message, { id: id }, result.rawXml);
         document.getElementById("deleteId").value = "";
@@ -477,6 +476,7 @@ async function deleteProduct() {
             badge.style.backgroundColor = "#fef2f2";
             badge.style.color = "#dc2626";
         }
+        await fetchAllProducts(false, "SOAP Deleted #" + id);
     } else {
         showResult(message, "error", "SOAP: deleteProduct");
         renderSoapResponseCard("deleteProduct", "FAILED", message, { id: id }, result.rawXml);
@@ -1200,4 +1200,267 @@ function renderRecentCacheList() {
 
         container.appendChild(item);
     });
+}
+
+// --------------------------------------------------------------------------
+// 7. SOAP Operation: getAllProducts (POST /ws -> GetAllProductsRequest)
+// Synchronizes frontend productCache and Dashboard with backend database
+// --------------------------------------------------------------------------
+async function fetchAllProducts(isManualRefresh = false, operationContext = null) {
+    const tableContainer = document.getElementById("inventoryTableContainer");
+    const countPill = document.getElementById("tableProductCount");
+
+    if (tableContainer && (!productCache || productCache.size === 0)) {
+        tableContainer.innerHTML = `
+            <div class="table-loading">
+                <span class="supplier-spinner">🔄</span>
+                <span>Synchronizing live inventory from backend via SOAP getAllProducts (/ws)...</span>
+            </div>
+        `;
+    }
+
+    const soapPayload = `<inv:GetAllProductsRequest/>`;
+
+    const result = await callSoapService("getAllProducts", soapPayload);
+
+    if (!result.ok || !result.xmlDoc) {
+        const errorMsg = result.fault || "SOAP service communication failure while loading inventory.";
+        if (tableContainer) {
+            tableContainer.innerHTML = `
+                <div class="table-empty-state">
+                    <div class="table-empty-icon">⚠️</div>
+                    <h3 class="table-empty-title">Failed to Load Inventory via SOAP</h3>
+                    <p class="table-empty-desc">${escapeXml(errorMsg)}</p>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="fetchAllProducts(true)">
+                        🔄 Retry Connection
+                    </button>
+                </div>
+            `;
+        }
+        showResult(errorMsg, "error", "SOAP: getAllProducts");
+        if (isManualRefresh) {
+            renderSoapResponseCard("getAllProducts", "FAULT", errorMsg, null, result.rawXml);
+        }
+        return;
+    }
+
+    // Parse GetAllProductsResponse
+    const responseNode = getXmlNode(result.xmlDoc, "GetAllProductsResponse");
+
+    // Clear cache before loading fresh synchronized state
+    productCache.clear();
+
+    if (responseNode) {
+        // Support both <products> and <product> tag naming
+        let productNodes = responseNode.getElementsByTagNameNS(SOAP_NAMESPACE, "products");
+        if (!productNodes || productNodes.length === 0) {
+            productNodes = responseNode.getElementsByTagName("products");
+        }
+        if (!productNodes || productNodes.length === 0) {
+            productNodes = responseNode.getElementsByTagNameNS(SOAP_NAMESPACE, "product");
+        }
+        if (!productNodes || productNodes.length === 0) {
+            productNodes = responseNode.getElementsByTagName("product");
+        }
+
+        for (let i = 0; i < productNodes.length; i++) {
+            const node = productNodes[i];
+            const idVal = getXmlValue(node, "id");
+            if (idVal) {
+                const product = {
+                    id: parseInt(idVal, 10),
+                    name: getXmlValue(node, "name"),
+                    quantity: parseInt(getXmlValue(node, "quantity") || "0", 10),
+                    price: parseFloat(getXmlValue(node, "price") || "0.0"),
+                    category: getXmlValue(node, "category")
+                };
+                if (!isNaN(product.id)) {
+                    productCache.set(product.id, product);
+                }
+            }
+        }
+    }
+
+    // Update real persisted dashboard statistics
+    const lastOpLabel = operationContext || (isManualRefresh ? "SOAP: Refresh (" + productCache.size + ")" : "Live DB Synced");
+    updateStatistics(lastOpLabel);
+
+    // Render table
+    renderInventoryTable();
+
+    if (isManualRefresh) {
+        showResult(`Successfully synchronized ${productCache.size} products from database via SOAP.`, "success", "SOAP: getAllProducts");
+        renderSoapResponseCard("getAllProducts", "SUCCESS", `Retrieved ${productCache.size} persisted products from database`, null, result.rawXml);
+    }
+}
+
+// --------------------------------------------------------------------------
+// Inventory Overview Table Renderer
+// --------------------------------------------------------------------------
+function renderInventoryTable() {
+    const tableContainer = document.getElementById("inventoryTableContainer");
+    const countPill = document.getElementById("tableProductCount");
+    if (!tableContainer) return;
+
+    if (countPill) {
+        countPill.textContent = `${productCache.size} ${productCache.size === 1 ? 'item' : 'items'}`;
+    }
+
+    // Convert map to sorted array
+    let products = Array.from(productCache.values()).sort((a, b) => a.id - b.id);
+
+    // Apply Low Stock Filter
+    const lowStockToggle = document.getElementById("filterLowStockToggle");
+    const isLowStockOnly = lowStockToggle && lowStockToggle.checked;
+    if (isLowStockOnly) {
+        products = products.filter(p => p.quantity < LOW_STOCK_THRESHOLD);
+    }
+
+    // Apply Search Filter
+    const searchInput = document.getElementById("inventorySearchInput");
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+    if (query) {
+        products = products.filter(p =>
+            String(p.id).includes(query) ||
+            (p.name && p.name.toLowerCase().includes(query)) ||
+            (p.category && p.category.toLowerCase().includes(query))
+        );
+    }
+
+    // Empty state
+    if (products.length === 0) {
+        if (productCache.size === 0) {
+            tableContainer.innerHTML = `
+                <div class="table-empty-state">
+                    <div class="table-empty-icon">📦</div>
+                    <h3 class="table-empty-title">No Products in Database</h3>
+                    <p class="table-empty-desc">Your database currently has 0 inventory items. Use the "Add Product" operation to insert your first product via SOAP.</p>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="switchTab('add')">
+                        ➕ Add First Product
+                    </button>
+                </div>
+            `;
+        } else {
+            tableContainer.innerHTML = `
+                <div class="table-empty-state">
+                    <div class="table-empty-icon">🔍</div>
+                    <h3 class="table-empty-title">No Matching Products</h3>
+                    <p class="table-empty-desc">No products match your current search/filter criteria (${isLowStockOnly ? 'Low Stock' : ''} "${escapeXml(query)}").</p>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="clearInventoryFilters()">
+                        Reset Filters
+                    </button>
+                </div>
+            `;
+        }
+        return;
+    }
+
+    // Build table HTML
+    let tableHtml = `
+        <table class="inventory-table">
+            <thead>
+                <tr>
+                    <th style="width: 80px;">ID</th>
+                    <th>Product Name</th>
+                    <th>Category</th>
+                    <th style="text-align: right; width: 110px;">Quantity</th>
+                    <th style="text-align: right; width: 130px;">Price (₹)</th>
+                    <th style="text-align: center; width: 160px;">Stock Status</th>
+                    <th style="text-align: right; width: 180px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    products.forEach(p => {
+        const isOutOfStock = p.quantity <= 0;
+        const isLowStock = !isOutOfStock && p.quantity < LOW_STOCK_THRESHOLD;
+
+        let rowClass = "";
+        let statusBadge = "";
+
+        if (isOutOfStock) {
+            rowClass = "table-row-out-of-stock";
+            statusBadge = `<span class="stock-badge badge-out-of-stock">✖ Out of Stock (0)</span>`;
+        } else if (isLowStock) {
+            rowClass = "table-row-low-stock";
+            statusBadge = `<span class="stock-badge badge-low-stock">⚠️ Low Stock (${p.quantity})</span>`;
+        } else {
+            statusBadge = `<span class="stock-badge badge-in-stock">✔ In Stock (${p.quantity})</span>`;
+        }
+
+        const formattedPrice = "₹" + Number(p.price).toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+
+        tableHtml += `
+            <tr class="${rowClass}">
+                <td class="col-id">#${p.id}</td>
+                <td class="col-name">${escapeXml(p.name)}</td>
+                <td class="col-category">${escapeXml(p.category)}</td>
+                <td class="col-qty">${p.quantity}</td>
+                <td class="col-price">${formattedPrice}</td>
+                <td class="col-status">${statusBadge}</td>
+                <td class="col-actions">
+                    <button type="button" class="table-action-btn" title="View details" onclick="selectProductFromTable(${p.id})">
+                        🔍 Inspect
+                    </button>
+                    <button type="button" class="table-action-btn" title="Load into Update Form" onclick="loadProductToUpdate(${p.id})">
+                        ✏️ Edit
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+
+    tableHtml += `
+            </tbody>
+        </table>
+    `;
+
+    tableContainer.innerHTML = tableHtml;
+}
+
+function selectProductFromTable(productId) {
+    const product = productCache.get(productId);
+    if (product) {
+        displayProduct(product);
+        prefillUpdateForm(product);
+        showResult(`Inspecting Product #${product.id} (${product.name})`, "info", "Product Selected");
+        const detailsEl = document.getElementById("productDetails");
+        if (detailsEl) detailsEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+}
+
+function loadProductToUpdate(productId) {
+    const product = productCache.get(productId);
+    if (product) {
+        displayProduct(product);
+        prefillUpdateForm(product);
+        switchTab("update");
+    }
+}
+
+function toggleLowStockFilter() {
+    renderInventoryTable();
+}
+
+function filterInventoryTable() {
+    renderInventoryTable();
+}
+
+function clearInventoryFilters() {
+    const toggle = document.getElementById("filterLowStockToggle");
+    if (toggle) toggle.checked = false;
+    const input = document.getElementById("inventorySearchInput");
+    if (input) input.value = "";
+    renderInventoryTable();
+}
+
+function scrollToInventoryTable() {
+    const section = document.getElementById("inventoryOverviewSection");
+    if (section) {
+        section.scrollIntoView({ behavior: "smooth" });
+    }
 }

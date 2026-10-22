@@ -1587,3 +1587,321 @@ body {
     font-size: 11px;
     color: #64748b;
 }
+
+/* --------------------------------------------------------------------------
+   Inventory Overview Table
+   -------------------------------------------------------------------------- */
+.inventory-table-card {
+    margin-top: 28px;
+    padding: 24px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+}
+
+.inventory-table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.inventory-table-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.table-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.table-icon {
+    font-size: 20px;
+}
+
+.table-card-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.live-sync-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--success);
+    background-color: var(--success-light);
+    padding: 3px 8px;
+    border-radius: var(--radius-full);
+    border: 1px solid rgba(5, 150, 105, 0.25);
+}
+
+.table-count-pill {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background-color: var(--bg-muted);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+}
+
+.table-card-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.table-card-subtitle code {
+    background-color: var(--bg-muted);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+}
+
+.inventory-table-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+}
+
+.filter-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    background-color: var(--bg-muted);
+    padding: 7px 14px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    transition: var(--transition);
+    user-select: none;
+}
+
+.filter-toggle-label:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.filter-toggle-label input[type="checkbox"] {
+    accent-color: var(--warning);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+
+.search-group input {
+    padding: 7px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background-color: #ffffff;
+    color: var(--text-primary);
+    width: 220px;
+    transition: var(--transition);
+}
+
+.search-group input:focus {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.table-responsive {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background-color: #ffffff;
+}
+
+.inventory-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+}
+
+.inventory-table thead {
+    background-color: #f8fafc;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.inventory-table th {
+    padding: 12px 16px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.inventory-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.15s ease;
+}
+
+.inventory-table tbody tr:hover {
+    background-color: #f8fafc;
+}
+
+.inventory-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.inventory-table td {
+    padding: 12px 16px;
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+
+.inventory-table .col-id {
+    font-family: monospace;
+    font-weight: 700;
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+.inventory-table .col-name {
+    font-weight: 600;
+}
+
+.inventory-table .col-category {
+    color: var(--text-secondary);
+}
+
+.inventory-table .col-qty {
+    font-weight: 600;
+    text-align: right;
+}
+
+.inventory-table .col-price {
+    font-weight: 600;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.inventory-table .col-status {
+    text-align: center;
+    white-space: nowrap;
+}
+
+.inventory-table .col-actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.stock-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.badge-in-stock {
+    background-color: var(--success-light);
+    color: var(--success);
+    border: 1px solid rgba(5, 150, 105, 0.25);
+}
+
+.badge-low-stock {
+    background-color: var(--warning-light);
+    color: var(--warning);
+    border: 1px solid rgba(217, 119, 6, 0.35);
+    font-weight: 700;
+}
+
+.badge-out-of-stock {
+    background-color: var(--danger-light);
+    color: var(--danger);
+    border: 1px solid rgba(220, 38, 38, 0.25);
+}
+
+.table-row-low-stock {
+    background-color: #fffdf5;
+}
+
+.table-row-low-stock:hover {
+    background-color: #fefce8 !important;
+}
+
+.table-row-out-of-stock {
+    background-color: #fff8f8;
+}
+
+.table-row-out-of-stock:hover {
+    background-color: #fef2f2 !important;
+}
+
+.table-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.table-empty-state {
+    text-align: center;
+    padding: 48px 24px;
+}
+
+.table-empty-icon {
+    font-size: 40px;
+    margin-bottom: 8px;
+}
+
+.table-empty-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.table-empty-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    max-width: 440px;
+    margin: 0 auto 16px auto;
+}
+
+.table-action-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background-color: #ffffff;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition);
+    margin-left: 4px;
+}
+
+.table-action-btn:hover {
+    background-color: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
