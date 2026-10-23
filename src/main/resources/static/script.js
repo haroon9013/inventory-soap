@@ -707,13 +707,32 @@ async function queryExternalInfo(productIdOpt) {
         productId = parseInt(raw, 10);
     }
 
-    const container = document.getElementById("externalInfoResult");
+    if (!productId) {
+        showResult("Please select or specify a valid Product ID.", "error", "Validation Error");
+        return;
+    }
+
+    let container = document.getElementById("externalInfoResult");
+    if (!container) {
+        const productDetails = document.getElementById("productDetails");
+        if (productDetails) {
+            container = document.createElement("div");
+            container.id = "externalInfoResult";
+            container.className = "external-info-result-container";
+            productDetails.appendChild(container);
+        }
+    }
     if (!container) return;
+
+    const detailsModal = document.getElementById("modal-details");
+    if (detailsModal && !detailsModal.classList.contains("show")) {
+        openModal("modal-details");
+    }
 
     container.innerHTML = `
         <div class="external-loading">
             <span class="external-spinner">🔄</span>
-            <span>Retrieving comprehensive product details...</span>
+            <span>Retrieving comprehensive product details (Frankfurter currency, supplier, weather)...</span>
         </div>
     `;
 
@@ -850,7 +869,7 @@ async function queryExternalInfo(productIdOpt) {
                     <span class="ext-icon">💱</span>
                     <div>
                         <h4 class="ext-title">Currency Pricing</h4>
-                        <span class="ext-source">Live Rates</span>
+                        <span class="ext-source">Live Rates • Frankfurter API</span>
                     </div>
                 </div>
                 <div class="ext-card-body">
@@ -1019,16 +1038,31 @@ function displayProduct(product) {
         checkSupplierAvailability(product.id);
     };
 
+    const externalBtn = document.createElement("button");
+    externalBtn.type = "button";
+    externalBtn.id = "btnProductExternalInfo";
+    externalBtn.className = "btn btn-primary btn-sm";
+    externalBtn.textContent = "🌐 Currency & External Info";
+    externalBtn.onclick = () => {
+        queryExternalInfo(product.id);
+    };
+
     actions.appendChild(editBtn);
     actions.appendChild(adjustBtn);
     actions.appendChild(deleteBtn);
     actions.appendChild(supplierBtn);
+    actions.appendChild(externalBtn);
     cardView.appendChild(actions);
 
     const supplierContainer = document.createElement("div");
     supplierContainer.id = "supplierDetailsContainer";
     supplierContainer.className = "supplier-details-container";
     cardView.appendChild(supplierContainer);
+
+    const externalContainer = document.createElement("div");
+    externalContainer.id = "externalInfoResult";
+    externalContainer.className = "external-info-result-container";
+    cardView.appendChild(externalContainer);
 
     container.appendChild(cardView);
 
